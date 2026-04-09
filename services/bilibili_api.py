@@ -279,3 +279,88 @@ async def resolve_short_url(short_url: str) -> Optional[str]:
     except Exception as e:
         logger.warning(f"解析短链接失败: {e}")
         return None
+
+
+async def search_videos(
+    keyword: str,
+    page: int = 1,
+    page_size: int = 20,
+    order: str = "totalrank",
+    duration: int = 0,
+    tids: int = 0,
+    cookies: Optional[dict] = None,
+) -> Optional[Dict]:
+    """
+    搜索B站视频
+
+    :param keyword: 搜索关键词
+    :param page: 页码
+    :param page_size: 每页数量
+    :param order: 排序方式 totalrank(综合) / click(播放量) / pubdate(发布日期) / danmaku(弹幕数) / stow(收藏数)
+    :param duration: 时长过滤 0(全部) / 1(0-10分钟) / 2(10-30分钟) / 3(30-60分钟) / 4(60分钟以上)
+    :param tids: 分区ID过滤 0(全部)
+    :param cookies: B站 cookie dict
+    :return: {"results": [...], "numResults": total, "page": page} 或 None
+    """
+    params = {
+        "search_type": "video",
+        "keyword": keyword,
+        "page": page,
+        "page_size": page_size,
+        "order": order,
+        "duration": duration,
+        "tids": tids,
+    }
+
+    url = "https://api.bilibili.com/x/web-interface/search/type"
+    headers = _build_headers(cookies)
+
+    try:
+        async with aiohttp.ClientSession(timeout=REQUEST_TIMEOUT) as session:
+            async with session.get(url, params=params, headers=headers) as resp:
+                if resp.status != 200:
+                    logger.warning(f"搜索视频失败, HTTP {resp.status}")
+                    return None
+
+                data = await resp.json()
+                code = data.get("code")
+                if code != 0:
+                    logger.warning(f"搜索视频失败: code={code}, msg={data.get('message')}")
+                    return None
+
+                result_data = data.get("data", {})
+                results = result_data.get("result", [])
+
+                videos = []
+                for item in results:
+                    if item.get("type") != "video":
+                        continue
+                    title = item.get("title", "")
+                    title = title.replace("<em class=\"keyword\">", "").replace("</em>", "")
+                    videos.append({
+                        "bvid": item.get("bvid", ""),
+                        "aid": item.get("aid", 0),
+                        "title": title,
+                        "author": item.get("author", ""),
+                        "mid": item.get("mid", 0),
+                        "description": item.get("description", ""),
+                        "pic": item.get("pic", ""),
+                        "play": item.get("play", 0),
+                        "danmaku": item.get("danmaku", 0),
+                        "like": item.get("like", 0),
+                        "favorites": item.get("favorites", 0),
+                        "duration": item.get("duration", ""),
+                        "pubdate": item.get("pubdate", 0),
+                        "tag": item.get("tag", ""),
+                        "url": f"https://www.bilibili.com/video/{item.get('bvid', '')}",
+                    })
+
+                return {
+                    "results": videos,
+                    "numResults": result_data.get("numResults", 0),
+                    "page": result_data.get("page", 1),
+                    "numPages": result_data.get("numPages", 0),
+                }
+    except Exception as e:
+        logger.error(f"搜索视频异常: {e}", exc_info=True)
+        return None

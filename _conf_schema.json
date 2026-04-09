@@ -186,5 +186,13 @@
     "type": "string",
     "default": "",
     "hint": "新视频总结推送到哪些QQ号（私聊），用英文逗号分隔。也可通过 /添加推送号 命令添加"
+  },
+  "search_max_videos": {
+    "description": "搜索功能最大视频数",
+    "type": "int",
+    "default": 10,
+    "min": 1,
+    "max": 50,
+    "hint": "AI调用搜索功能时，单次最多处理的视频数量。数量越大耗时越长"
   }
 }

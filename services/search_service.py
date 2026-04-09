@@ -1,0 +1,295 @@
+"""
+B站视频搜索转写服务
+
+搜索视频 → 批量下载转写 → 生成文本文件
+"""
+
+import asyncio
+import os
+import re
+import time
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict
+
+from astrbot.api import logger
+
+from ..downloaders.bilibili_downloader import BilibiliDownloader
+from ..transcriber.bcut import BcutTranscriber
+from ..models.transcriber_model import TranscriptResult
+
+
+@dataclass
+class VideoTranscriptResult:
+    """单个视频的转写结果"""
+    bvid: str
+    title: str
+    author: str
+    play: int
+    danmaku: int
+    like: int
+    url: str
+    duration: str
+    pubdate: int
+    description: str
+    transcript_text: str = ""
+    success: bool = False
+    error: str = ""
+
+
+@dataclass
+class BatchTranscriptResult:
+    """批量转写结果"""
+    task_id: str
+    keyword: str
+    folder_path: str
+    videos: List[VideoTranscriptResult] = field(default_factory=list)
+    total_count: int = 0
+    success_count: int = 0
+    failed_count: int = 0
+    start_time: float = 0
+    end_time: float = 0
+
+    def to_summary(self) -> str:
+        """生成结果摘要"""
+        elapsed = self.end_time - self.start_time if self.end_time else 0
+        lines = [
+            f"搜索关键词: {self.keyword}",
+            f"任务ID: {self.task_id}",
+            f"文件夹: {self.folder_path}",
+            f"总计: {self.total_count} 个视频",
+            f"成功: {self.success_count} 个",
+            f"失败: {self.failed_count} 个",
+            f"耗时: {elapsed:.1f} 秒",
+        ]
+        if self.failed_count > 0:
+            lines.append("\n失败的视频:")
+            for v in self.videos:
+                if not v.success:
+                    lines.append(f"  - {v.title}: {v.error}")
+        return "\n".join(lines)
+
+
+class SearchService:
+    """搜索转写服务"""
+
+    def __init__(self, data_dir: str, cookies: Optional[dict] = None):
+        self.data_dir = data_dir
+        self.search_dir = os.path.join(data_dir, "search_results")
+        os.makedirs(self.search_dir, exist_ok=True)
+        self.cookies = cookies
+        self.downloader = BilibiliDownloader(
+            data_dir=os.path.join(data_dir, "search_audio"),
+            cookies=cookies,
+        )
+        self.transcriber = BcutTranscriber()
+
+    def create_task_folder(self, keyword: str) -> tuple[str, str]:
+        """
+        创建任务文件夹
+
+        :return: (task_id, folder_path)
+        """
+        task_id = f"{int(time.time() * 1000)}"
+        safe_keyword = re.sub(r'[\\/:*?"<>|]', '_', keyword)[:30]
+        folder_name = f"{task_id}_{safe_keyword}"
+        folder_path = os.path.join(self.search_dir, folder_name)
+        os.makedirs(folder_path, exist_ok=True)
+        return task_id, folder_path
+
+    async def process_single_video(
+        self,
+        video_info: dict,
+        folder_path: str,
+        quality: str = "fast",
+    ) -> VideoTranscriptResult:
+        """
+        处理单个视频：下载 → 获取字幕/转写 → 保存文件
+
+        :param video_info: 视频信息字典
+        :param folder_path: 保存文件夹路径
+        :param quality: 音频下载质量
+        :return: 转写结果
+        """
+        bvid = video_info.get("bvid", "")
+        title = video_info.get("title", "未知标题")
+        url = video_info.get("url", f"https://www.bilibili.com/video/{bvid}")
+
+        result = VideoTranscriptResult(
+            bvid=bvid,
+            title=title,
+            author=video_info.get("author", ""),
+            play=video_info.get("play", 0),
+            danmaku=video_info.get("danmaku", 0),
+            like=video_info.get("like", 0),
+            url=url,
+            duration=video_info.get("duration", ""),
+            pubdate=video_info.get("pubdate", 0),
+            description=video_info.get("description", ""),
+        )
+
+        try:
+            logger.info(f"[SearchService] 开始处理视频: {title} ({bvid})")
+
+            audio_meta = await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: self.downloader.download(url, quality=quality)
+            )
+            logger.info(f"[SearchService] 音频下载完成: {audio_meta.title}")
+
+            transcript = await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: self.downloader.download_subtitles(url)
+            )
+
+            if not transcript or not transcript.segments:
+                logger.info(f"[SearchService] 无平台字幕，使用必剪转写: {bvid}")
+                transcript = await asyncio.get_running_loop().run_in_executor(
+                    None,
+                    lambda: self.transcriber.transcript(audio_meta.file_path)
+                )
+
+            if not transcript or not transcript.segments:
+                result.error = "无法获取字幕或转写内容"
+                result.success = False
+                return result
+
+            transcript_text = self._format_transcript(transcript)
+            result.transcript_text = transcript_text
+            result.success = True
+
+            file_content = self._build_file_content(result, transcript_text)
+            safe_title = re.sub(r'[\\/:*?"<>|]', '_', title)[:50]
+            file_name = f"{bvid}_{safe_title}.txt"
+            file_path = os.path.join(folder_path, file_name)
+
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(file_content)
+
+            logger.info(f"[SearchService] 已保存转写文件: {file_path}")
+
+            try:
+                if audio_meta and hasattr(audio_meta, 'file_path') and os.path.exists(audio_meta.file_path):
+                    os.remove(audio_meta.file_path)
+            except Exception:
+                pass
+
+            return result
+
+        except Exception as e:
+            logger.error(f"[SearchService] 处理视频失败 {title}: {e}", exc_info=True)
+            result.error = str(e)
+            result.success = False
+            return result
+
+    async def process_batch(
+        self,
+        videos: List[dict],
+        keyword: str,
+        max_count: int = 10,
+        quality: str = "fast",
+        max_concurrent: int = 2,
+    ) -> BatchTranscriptResult:
+        """
+        批量处理视频
+
+        :param videos: 视频信息列表
+        :param keyword: 搜索关键词
+        :param max_count: 最大处理数量
+        :param quality: 音频下载质量
+        :param max_concurrent: 最大并发数
+        :return: 批量转写结果
+        """
+        task_id, folder_path = self.create_task_folder(keyword)
+
+        result = BatchTranscriptResult(
+            task_id=task_id,
+            keyword=keyword,
+            folder_path=folder_path,
+            total_count=min(len(videos), max_count),
+            start_time=time.time(),
+        )
+
+        videos_to_process = videos[:max_count]
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def process_with_semaphore(video_info: dict) -> VideoTranscriptResult:
+            async with semaphore:
+                return await self.process_single_video(video_info, folder_path, quality)
+
+        tasks = [process_with_semaphore(v) for v in videos_to_process]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for r in results:
+            if isinstance(r, Exception):
+                logger.error(f"[SearchService] 任务异常: {r}")
+                result.failed_count += 1
+            elif isinstance(r, VideoTranscriptResult):
+                result.videos.append(r)
+                if r.success:
+                    result.success_count += 1
+                else:
+                    result.failed_count += 1
+
+        result.end_time = time.time()
+
+        summary_file = os.path.join(folder_path, "_summary.txt")
+        with open(summary_file, 'w', encoding='utf-8') as f:
+            f.write(result.to_summary())
+
+        logger.info(f"[SearchService] 批量处理完成: {result.success_count}/{result.total_count}")
+
+        return result
+
+    def _format_transcript(self, transcript: TranscriptResult) -> str:
+        """格式化转写内容"""
+        lines = []
+        for seg in transcript.segments:
+            start_time = self._format_time(seg.start)
+            lines.append(f"[{start_time}] {seg.text}")
+        return "\n".join(lines)
+
+    def _format_time(self, seconds: float) -> str:
+        """格式化时间戳"""
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{minutes:02d}:{secs:02d}"
+
+    def _build_file_content(self, video: VideoTranscriptResult, transcript_text: str) -> str:
+        """构建文件内容"""
+        lines = [
+            "=" * 50,
+            "视频信息",
+            "=" * 50,
+            f"标题: {video.title}",
+            f"UP主: {video.author}",
+            f"BV号: {video.bvid}",
+            f"时长: {video.duration}",
+            f"播放量: {self._format_number(video.play)}",
+            f"弹幕: {self._format_number(video.danmaku)}",
+            f"点赞: {self._format_number(video.like)}",
+            f"链接: {video.url}",
+        ]
+
+        if video.description:
+            desc = video.description[:200] + "..." if len(video.description) > 200 else video.description
+            lines.append(f"简介: {desc}")
+
+        lines.extend([
+            "",
+            "=" * 50,
+            "转写内容",
+            "=" * 50,
+            "",
+            transcript_text,
+        ])
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_number(n: int) -> str:
+        """格式化数字"""
+        if n >= 100000000:
+            return f"{n / 100000000:.1f}亿"
+        elif n >= 10000:
+            return f"{n / 10000:.1f}万"
+        return str(n)

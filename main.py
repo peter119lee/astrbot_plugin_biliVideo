@@ -10,6 +10,7 @@ import os
 import re
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.star import Context, Star, StarTools
@@ -17,8 +18,9 @@ from astrbot.api.message_components import Plain, Image
 from astrbot.api import logger
 
 from astrbot.core.agent.run_context import ContextWrapper
-from astrbot.core.agent.tool import FunctionTool, ToolExecResult
+from astrbot.core.agent.tool import FunctionTool, ToolExecResult, ToolSet
 from astrbot.core.astr_agent_context import AstrAgentContext
+from astrbot.core.tools.cron_tools import CREATE_CRON_JOB_TOOL
 
 from .services.subscription import SubscriptionManager
 from .services.bilibili_api import get_up_info, get_latest_videos, search_up_by_name, get_video_info, resolve_short_url, search_videos
@@ -108,8 +110,7 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
                 self._background_process(
                     videos=videos,
                     keyword=keyword,
-                    umo=umo,
-                    provider_id=provider_id,
+                    event=event,
                 )
             )
 
@@ -123,10 +124,9 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
         self,
         videos: list,
         keyword: str,
-        umo: str,
-        provider_id: str,
+        event: AstrMessageEvent,
     ):
-        """后台处理任务"""
+        """后台处理任务，完成后通过 FutureTask 唤醒主对话"""
         try:
             search_service = self.plugin_instance.search_service
             max_count = self.plugin_instance.config.get("search_max_videos", 10)
@@ -139,27 +139,36 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
                 quality=quality,
             )
 
+            run_at = datetime.now(timezone.utc) + timedelta(seconds=5)
+            run_at_str = run_at.isoformat()
+
             prompt = (
                 f"B站视频搜索转写任务已完成。\n\n"
                 f"搜索关键词: {keyword}\n"
                 f"处理结果: 成功 {result.success_count} 个，失败 {result.failed_count} 个\n"
                 f"文件保存位置: {result.folder_path}\n\n"
-                f"请根据以上信息，用简洁的语言告知用户任务完成情况，并提示用户可以基于这些文件内容进行进一步交流。"
+                f"请立即使用 create_future_task 工具创建一个定时任务，参数如下：\n"
+                f"- run_once: true\n"
+                f"- run_at: {run_at_str}\n"
+                f"- note: 在这个对话中告诉用户转写已完成，并根据用户之前的需求处理结果。如果用户有具体要求（如找出播放量最高的、总结内容等），请根据转写文件内容进行处理。\n\n"
+                f"创建任务后，简短回复确认即可。"
             )
 
-            llm_resp = await self.plugin_instance.context.llm_generate(
-                chat_provider_id=provider_id,
+            llm_resp = await self.plugin_instance.context.tool_loop_agent(
+                event=event,
+                chat_provider_id=await self.plugin_instance.context.get_current_chat_provider_id(event.unified_msg_origin),
                 prompt=prompt,
+                tools=ToolSet([CREATE_CRON_JOB_TOOL]),
+                max_steps=5,
             )
 
-            chain = MessageChain().message(llm_resp.completion_text)
-            await self.plugin_instance.context.send_message(umo, chain)
+            logger.info(f"[BilibiliSearchTool] 已创建定时任务唤醒主对话: {llm_resp.completion_text[:100]}")
 
         except Exception as e:
             logger.error(f"[BilibiliSearchTool] 后台处理失败: {e}", exc_info=True)
             try:
                 chain = MessageChain().message(f"视频转写任务处理出错: {str(e)}")
-                await self.plugin_instance.context.send_message(umo, chain)
+                await self.plugin_instance.context.send_message(event.unified_msg_origin, chain)
             except Exception:
                 pass
 

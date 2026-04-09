@@ -129,7 +129,7 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
         """后台处理任务"""
         try:
             search_service = self.plugin_instance.search_service
-            max_count = self.plugin_instance.config.get("search_max_videos", 20)
+            max_count = self.plugin_instance.config.get("search_max_videos", 10)
             quality = self.plugin_instance.config.get("download_quality", "fast")
 
             result = await search_service.process_batch(

@@ -365,22 +365,28 @@ class BilibiliSearchDownloadTool(FunctionTool[AstrAgentContext]):
             assistant_content = sent_message
             if not assistant_content and final_resp:
                 assistant_content = getattr(final_resp, 'completion_text', '') or ""
+            if not assistant_content:
+                assistant_content = (
+                    f"视频转写任务已完成。\n"
+                    f"文件夹: {folder_name}\n"
+                    f"成功: {result.success_count} 个，失败: {result.failed_count} 个\n"
+                    f"文件位置: {result.folder_path}"
+                )
 
-            if assistant_content:
-                conv_mgr = self.plugin_instance.context.conversation_manager
-                if conv_mgr and conv:
-                    try:
-                        history = json.loads(conv.history) if conv.history else []
-                        history.append({"role": "user", "content": prompt})
-                        history.append({"role": "assistant", "content": assistant_content})
-                        await conv_mgr.update_conversation(
-                            umo,
-                            conv.cid,
-                            history=history,
-                        )
-                        logger.info(f"[BilibiliSearchDownloadTool] 已保存消息到对话历史")
-                    except Exception as e:
-                        logger.warning(f"[BilibiliSearchDownloadTool] 保存历史失败: {e}")
+            conv_mgr = self.plugin_instance.context.conversation_manager
+            if conv_mgr and conv:
+                try:
+                    history = json.loads(conv.history) if conv.history else []
+                    history.append({"role": "user", "content": prompt})
+                    history.append({"role": "assistant", "content": assistant_content})
+                    await conv_mgr.update_conversation(
+                        umo,
+                        conv.cid,
+                        history=history,
+                    )
+                    logger.info(f"[BilibiliSearchDownloadTool] 已保存消息到对话历史")
+                except Exception as e:
+                    logger.warning(f"[BilibiliSearchDownloadTool] 保存历史失败: {e}")
 
             logger.info(f"[BilibiliSearchDownloadTool] 主对话处理完成: {folder_name}")
 

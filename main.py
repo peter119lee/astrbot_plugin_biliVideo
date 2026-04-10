@@ -42,6 +42,7 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
     description: str = (
         "搜索B站视频并自动下载转写内容。"
         "适用于：搜索特定主题的视频、查找相关视频内容、批量获取视频信息等。"
+        "转写文件保存路径: /AstrBot/data/plugin_data/astrbot_plugin_bilivideo/search_results/"
         "转写完成后会自动通知用户。"
     )
     parameters: dict = field(

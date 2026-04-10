@@ -54,8 +54,7 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
                 },
                 "count": {
                     "type": "integer",
-                    "description": "要处理的视频数量，默认10个，最大50个",
-                    "default": 10,
+                    "description": "要处理的视频数量，不指定则使用配置默认值",
                 },
             },
             "required": ["keyword"],
@@ -67,7 +66,12 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
         keyword = kwargs.get("keyword", "")
-        count = min(int(kwargs.get("count", 10)), 50)
+        
+        default_count = self.plugin_instance.config.get("default_count", 3)
+        max_limit = self.plugin_instance.config.get("search_max_videos", 20)
+        
+        raw_count = kwargs.get("count", default_count)
+        count = min(int(raw_count), max_limit)
 
         if not keyword:
             return "错误：请提供搜索关键词"
@@ -101,14 +105,15 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
                     f"   UP主: {v['author']} | 播放: {v['play']} | BV: {v['bvid']}"
                 )
 
+            actual_count = min(count, len(videos))
             result_text = (
-                f"找到 {total} 个与「{keyword}」相关的视频，正在后台处理前 {len(videos)} 个...\n\n"
+                f"找到 {total} 个与「{keyword}」相关的视频，正在后台处理前 {actual_count} 个...\n\n"
                 f"前 {min(10, len(videos))} 个视频:\n" + "\n".join(video_list)
             )
 
             asyncio.create_task(
                 self._background_process(
-                    videos=videos,
+                    videos=videos[:actual_count],
                     keyword=keyword,
                     event=event,
                 )
@@ -129,13 +134,13 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
         """后台处理任务，完成后通过 FutureTask 唤醒主对话"""
         try:
             search_service = self.plugin_instance.search_service
-            max_count = self.plugin_instance.config.get("search_max_videos", 10)
+            max_concurrent = self.plugin_instance.config.get("search_max_concurrent", 2)
             quality = self.plugin_instance.config.get("download_quality", "fast")
 
             result = await search_service.process_batch(
                 videos=videos,
                 keyword=keyword,
-                max_count=max_count,
+                max_concurrent=max_concurrent,
                 quality=quality,
             )
 

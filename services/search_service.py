@@ -185,16 +185,14 @@ class SearchService:
         self,
         videos: List[dict],
         keyword: str,
-        max_count: int = 10,
         quality: str = "fast",
         max_concurrent: int = 2,
     ) -> BatchTranscriptResult:
         """
         批量处理视频
 
-        :param videos: 视频信息列表
+        :param videos: 视频信息列表（已截断）
         :param keyword: 搜索关键词
-        :param max_count: 最大处理数量
         :param quality: 音频下载质量
         :param max_concurrent: 最大并发数
         :return: 批量转写结果
@@ -205,18 +203,17 @@ class SearchService:
             task_id=task_id,
             keyword=keyword,
             folder_path=folder_path,
-            total_count=min(len(videos), max_count),
+            total_count=len(videos),
             start_time=time.time(),
         )
 
-        videos_to_process = videos[:max_count]
         semaphore = asyncio.Semaphore(max_concurrent)
 
         async def process_with_semaphore(video_info: dict) -> VideoTranscriptResult:
             async with semaphore:
                 return await self.process_single_video(video_info, folder_path, quality)
 
-        tasks = [process_with_semaphore(v) for v in videos_to_process]
+        tasks = [process_with_semaphore(v) for v in videos]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for r in results:

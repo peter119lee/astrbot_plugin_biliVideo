@@ -10,7 +10,6 @@ import os
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.star import Context, Star, StarTools
@@ -20,7 +19,6 @@ from astrbot.api import logger
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import FunctionTool, ToolExecResult, ToolSet
 from astrbot.core.astr_agent_context import AstrAgentContext
-from astrbot.core.tools.cron_tools import CREATE_CRON_JOB_TOOL
 
 from .services.subscription import SubscriptionManager
 from .services.bilibili_api import get_up_info, get_latest_videos, search_up_by_name, get_video_info, resolve_short_url, search_videos
@@ -42,8 +40,7 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
     description: str = (
         "搜索B站视频并自动下载转写内容。"
         "适用于：搜索特定主题的视频、查找相关视频内容、批量获取视频信息等。"
-        "转写文件保存路径: /AstrBot/data/plugin_data/astrbot_plugin_bilivideo/search_results/"
-        "转写完成后会自动通知用户。"
+        "重要：转写完成后系统会自动唤醒你继续处理用户需求，无需手动等待或检查文件状态。"
     )
     parameters: dict = field(
         default_factory=lambda: {
@@ -132,8 +129,19 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
         keyword: str,
         event: AstrMessageEvent,
     ):
-        """后台处理任务，完成后通过 FutureTask 唤醒主对话"""
+        """后台处理任务，完成后直接唤醒主对话"""
         try:
+            from astrbot.core.cron.events import CronMessageEvent
+            from astrbot.core.astr_main_agent import (
+                MainAgentBuildConfig,
+                _get_session_conv,
+                build_main_agent,
+            )
+            from astrbot.core.astr_main_agent_resources import (
+                SEND_MESSAGE_TO_USER_TOOL,
+            )
+            from astrbot.core.provider.entities import ProviderRequest
+
             search_service = self.plugin_instance.search_service
             max_concurrent = self.plugin_instance.config.get("search_max_concurrent", 2)
             quality = self.plugin_instance.config.get("download_quality", "fast")
@@ -145,30 +153,68 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
                 quality=quality,
             )
 
-            run_at = datetime.now(timezone.utc) + timedelta(seconds=5)
-            run_at_str = run_at.isoformat()
-
             prompt = (
                 f"B站视频搜索转写任务已完成。\n\n"
                 f"搜索关键词: {keyword}\n"
                 f"处理结果: 成功 {result.success_count} 个，失败 {result.failed_count} 个\n"
-                f"文件保存位置: {result.folder_path}\n\n"
-                f"请立即使用 create_future_task 工具创建一个定时任务，参数如下：\n"
-                f"- run_once: true\n"
-                f"- run_at: {run_at_str}\n"
-                f"- note: 在这个对话中告诉用户转写已完成，并根据用户之前的需求处理结果。如果用户有具体要求（如找出播放量最高的、总结内容等），请根据转写文件内容进行处理。\n\n"
-                f"创建任务后，简短回复确认即可。"
+                f"转写文件位置: {result.folder_path}\n\n"
+                f"请使用 send_message_to_user 工具发送消息告诉用户任务完成情况，并告知转写文件保存位置。\n"
+                f"如果用户之前有具体要求（如找出播放量最高的、总结内容等），请根据转写文件内容处理后一并回复。"
             )
 
-            llm_resp = await self.plugin_instance.context.tool_loop_agent(
-                event=event,
-                chat_provider_id=await self.plugin_instance.context.get_current_chat_provider_id(event.unified_msg_origin),
-                prompt=prompt,
-                tools=ToolSet([CREATE_CRON_JOB_TOOL]),
-                max_steps=5,
+            cron_event = CronMessageEvent(
+                context=self.plugin_instance.context,
+                session=event.session,
+                message=prompt,
+                sender_id="bili_search",
+                sender_name="B站搜索",
             )
 
-            logger.info(f"[BilibiliSearchTool] 已创建定时任务唤醒主对话: {llm_resp.completion_text[:100]}")
+            umo = cron_event.unified_msg_origin
+            cfg = self.plugin_instance.context.get_config(umo=umo)
+            tool_call_timeout = cfg.get("provider_settings", {}).get("tool_call_timeout", 120)
+
+            config = MainAgentBuildConfig(
+                tool_call_timeout=tool_call_timeout,
+                llm_safety_mode=False,
+                streaming_response=False,
+            )
+
+            req = ProviderRequest()
+            conv = await _get_session_conv(event=cron_event, plugin_context=self.plugin_instance.context)
+            req.conversation = conv
+
+            context_history = json.loads(conv.history) if conv.history else []
+            if context_history:
+                req.contexts = context_history
+                context_dump = req._print_friendly_context()
+                req.contexts = []
+                req.system_prompt += (
+                    "\n\nBelow is your previous conversation history:\n"
+                    f"---\n{context_dump}\n---\n"
+                )
+
+            req.prompt = prompt
+            if not req.func_tool:
+                req.func_tool = ToolSet()
+            req.func_tool.add_tool(SEND_MESSAGE_TO_USER_TOOL)
+
+            agent_result = await build_main_agent(
+                event=cron_event,
+                plugin_context=self.plugin_instance.context,
+                config=config,
+                req=req,
+            )
+
+            if not agent_result:
+                logger.error("[BilibiliSearchTool] 无法构建主对话 agent")
+                return
+
+            runner = agent_result.agent_runner
+            async for _ in runner.step_until_done(30):
+                pass
+
+            logger.info(f"[BilibiliSearchTool] 主对话处理完成: {keyword}")
 
         except Exception as e:
             logger.error(f"[BilibiliSearchTool] 后台处理失败: {e}", exc_info=True)

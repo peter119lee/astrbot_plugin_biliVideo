@@ -162,7 +162,7 @@ AI 会自动组合使用两个工具：
 |--------|--------|------|
 | `default_count` | `20` | 搜索列表默认返回数量 |
 | `default_download_count` | `3` | 建议每次下载转写的数量 |
-| `search_max_concurrent` | `2` | 同时下载转写的并发数 |
+| `search_max_concurrent` | `1` | 同时下载转写的并发数 |
 
 ## ⚙️ 配置项
 
@@ -193,7 +193,7 @@ AI 会自动组合使用两个工具：
 | `detect_auto_summary` | `false` | 识别链接后自动生成总结（消耗LLM额度） |
 | `default_count` | `20` | 搜索列表默认返回数量 |
 | `default_download_count` | `3` | 建议每次下载转写的数量 |
-| `search_max_concurrent` | `2` | 搜索下载并发数 |
+| `search_max_concurrent` | `1` | 搜索下载并发数 |
 | `debug_mode` | `false` | 启用调试日志 |
 
 ## 📋 系统依赖
@@ -332,7 +332,7 @@ AI automatically continues processing when transcription is done. Transcripts sa
 |--------|---------|-------------|
 | `default_count` | `20` | Default search list count |
 | `default_download_count` | `3` | Suggested download count per batch |
-| `search_max_concurrent` | `2` | Concurrent download/transcribe limit |
+| `search_max_concurrent` | `1` | Concurrent download/transcribe limit |
 
 ## ⚙️ Configuration
 
@@ -357,7 +357,7 @@ AI automatically continues processing when transcription is done. Transcripts sa
 | `detect_auto_summary` | `false` | Auto-generate summary on link detect |
 | `default_count` | `20` | Default search list count |
 | `default_download_count` | `3` | Suggested download count per batch |
-| `search_max_concurrent` | `2` | Concurrent download/transcribe limit |
+| `search_max_concurrent` | `1` | Concurrent download/transcribe limit |
 | `debug_mode` | `false` | Enable debug logging |
 
 ## ⚠️ Notes

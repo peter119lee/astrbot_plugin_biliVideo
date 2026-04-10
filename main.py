@@ -203,8 +203,39 @@ class BilibiliSearchDownloadTool(FunctionTool[AstrAgentContext]):
             from astrbot.core.provider.entities import ProviderRequest
 
             search_service = self.plugin_instance.search_service
-            max_concurrent = self.plugin_instance.config.get("search_max_concurrent", 2)
+            max_concurrent = self.plugin_instance.config.get("search_max_concurrent", 1)
             quality = self.plugin_instance.config.get("download_quality", "fast")
+
+            umo = event.unified_msg_origin
+            progress_msg_sent = {"count": 0}
+
+            async def progress_callback(progress: dict):
+                try:
+                    completed = progress.get("completed", 0)
+                    total = progress.get("total", 0)
+                    title = progress.get("title", "")
+                    success = progress.get("success", True)
+                    error = progress.get("error", "")
+                    is_last = progress.get("is_last", False)
+                    success_count = progress.get("success_count", 0)
+                    failed_count = progress.get("failed_count", 0)
+
+                    if success:
+                        status_line = f"✅ 进度: {completed}/{total} - {title}"
+                    else:
+                        error_short = error[:30] + "..." if len(error) > 30 else error
+                        status_line = f"❌ 进度: {completed}/{total} - {title}（{error_short}）"
+
+                    if is_last:
+                        msg = f"{status_line}\n📝 转写完成（成功{success_count}个，失败{failed_count}个），即将为您分析..."
+                    else:
+                        msg = status_line
+
+                    chain = MessageChain().message(msg)
+                    await self.plugin_instance.context.send_message(umo, chain)
+                    progress_msg_sent["count"] += 1
+                except Exception as e:
+                    logger.warning(f"[BilibiliSearchDownloadTool] 进度回调失败: {e}")
 
             result = await search_service.process_by_bv_list(
                 bv_list=bv_list,
@@ -212,6 +243,7 @@ class BilibiliSearchDownloadTool(FunctionTool[AstrAgentContext]):
                 max_concurrent=max_concurrent,
                 quality=quality,
                 cookies=self.plugin_instance.bili_cookies,
+                progress_callback=progress_callback,
             )
 
             prompt = (
@@ -219,11 +251,10 @@ class BilibiliSearchDownloadTool(FunctionTool[AstrAgentContext]):
                 f"文件夹名称: {folder_name}\n"
                 f"处理结果: 成功 {result.success_count} 个，失败 {result.failed_count} 个\n"
                 f"转写文件位置: {result.folder_path}\n\n"
-                f"请使用 send_message_to_user 工具发送消息告诉用户任务完成情况，并告知转写文件保存位置。\n"
-                f"如果用户之前有具体要求，请根据转写文件内容处理后一并回复。"
+                f"必须使用 send_message_to_user 工具发送消息告诉用户任务完成情况，并告知转写文件保存位置。\n"
+                f"如果用户之前有具体要求，请根据转写文件内容处理后一并在sendMessageToUser中回复。"
             )
 
-            logger.info(f"[BilibiliSearchDownloadTool] 原对话session: {str(event.session)}")
             cron_event = CronMessageEvent(
                 context=self.plugin_instance.context,
                 session=event.session,

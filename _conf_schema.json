@@ -206,7 +206,7 @@
   "search_max_concurrent": {
     "description": "搜索下载并发数",
     "type": "int",
-    "default": 2,
+    "default": 1,
     "min": 1,
     "max": 5,
     "hint": "同时进行下载和转写的视频数量，数量越大服务器压力越大"

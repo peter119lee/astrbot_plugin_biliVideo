@@ -200,7 +200,7 @@ class SearchService:
         videos: List[dict],
         keyword: str,
         quality: str = "fast",
-        max_concurrent: int = 2,
+        max_concurrent: int = 1,
     ) -> BatchTranscriptResult:
         """
         批量处理视频
@@ -256,8 +256,9 @@ class SearchService:
         bv_list: List[str],
         folder_name: str,
         quality: str = "fast",
-        max_concurrent: int = 2,
+        max_concurrent: int = 1,
         cookies: Optional[dict] = None,
+        progress_callback=None,
     ) -> BatchTranscriptResult:
         """
         根据 BV 号列表批量处理视频
@@ -267,6 +268,7 @@ class SearchService:
         :param quality: 音频下载质量
         :param max_concurrent: 最大并发数
         :param cookies: B站 cookies
+        :param progress_callback: 进度回调函数，参数为 dict
         :return: 批量转写结果
         """
         from ..services.bilibili_api import get_video_info
@@ -328,24 +330,41 @@ class SearchService:
                 })
 
         semaphore = asyncio.Semaphore(max_concurrent)
+        completed_count = 0
+        lock = asyncio.Lock()
 
-        async def process_with_semaphore(video_info: dict) -> VideoTranscriptResult:
+        async def process_with_callback(video_info: dict) -> VideoTranscriptResult:
+            nonlocal completed_count
             async with semaphore:
-                return await self.process_single_video(video_info, folder_path, quality)
+                video_result = await self.process_single_video(video_info, folder_path, quality)
+                
+                async with lock:
+                    completed_count += 1
+                    if video_result.success:
+                        result.success_count += 1
+                    else:
+                        result.failed_count += 1
+                    result.videos.append(video_result)
 
-        tasks = [process_with_semaphore(v) for v in videos_info]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+                    if progress_callback:
+                        try:
+                            await progress_callback({
+                                "completed": completed_count,
+                                "total": result.total_count,
+                                "title": video_result.title,
+                                "success": video_result.success,
+                                "error": video_result.error if not video_result.success else "",
+                                "is_last": completed_count == result.total_count,
+                                "success_count": result.success_count,
+                                "failed_count": result.failed_count,
+                            })
+                        except Exception as e:
+                            logger.warning(f"[SearchService] 进度回调失败: {e}")
 
-        for r in results:
-            if isinstance(r, Exception):
-                logger.error(f"[SearchService] 任务异常: {r}")
-                result.failed_count += 1
-            elif isinstance(r, VideoTranscriptResult):
-                result.videos.append(r)
-                if r.success:
-                    result.success_count += 1
-                else:
-                    result.failed_count += 1
+                return video_result
+
+        tasks = [process_with_callback(v) for v in videos_info]
+        await asyncio.gather(*tasks, return_exceptions=True)
 
         result.end_time = time.time()
 

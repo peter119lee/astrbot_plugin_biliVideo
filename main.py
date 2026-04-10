@@ -21,7 +21,7 @@ from astrbot.core.agent.tool import FunctionTool, ToolExecResult, ToolSet
 from astrbot.core.astr_agent_context import AstrAgentContext
 
 from .services.subscription import SubscriptionManager
-from .services.bilibili_api import get_up_info, get_latest_videos, search_up_by_name, get_video_info, resolve_short_url, search_videos
+from .services.bilibili_api import get_up_info, get_latest_videos, search_up_by_name, get_video_info, resolve_short_url, search_videos, get_video_info
 from .services.bilibili_login import BilibiliLogin
 from .services.note_service import NoteService
 from .services.search_service import SearchService
@@ -30,17 +30,17 @@ from .utils.md_to_image import render_note_image
 
 
 @dataclass
-class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
+class BilibiliSearchListTool(FunctionTool[AstrAgentContext]):
     """
-    B站视频搜索工具
+    B站视频搜索列表工具
 
-    AI 调用此工具搜索B站视频并自动下载转写
+    AI 调用此工具搜索B站视频，返回视频列表，不下载转写
     """
-    name: str = "bilibili_search"
+    name: str = "bilibili_search_list"
     description: str = (
-        "搜索B站视频并自动下载转写内容。"
-        "适用于：搜索特定主题的视频、查找相关视频内容、批量获取视频信息等。"
-        "重要：转写完成后系统会自动唤醒你继续处理用户需求，无需手动等待或检查文件状态。"
+        "搜索B站视频并返回视频列表（包含BV号）。"
+        "仅返回搜索结果，不下载转写视频内容。"
+        "如需下载转写视频内容，请将选中的BV号传给 bilibili_search_download 工具。"
     )
     parameters: dict = field(
         default_factory=lambda: {
@@ -52,7 +52,7 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
                 },
                 "count": {
                     "type": "integer",
-                    "description": "要处理的视频数量，不指定则使用配置默认值",
+                    "description": "返回的视频数量，不指定则使用配置默认值",
                 },
             },
             "required": ["keyword"],
@@ -64,24 +64,11 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
         keyword = kwargs.get("keyword", "")
-        
-        default_count = self.plugin_instance.config.get("default_count", 3)
-        max_limit = self.plugin_instance.config.get("search_max_videos", 20)
-        
-        raw_count = kwargs.get("count", default_count)
-        count = min(int(raw_count), max_limit)
+        default_count = self.plugin_instance.config.get("default_count", 20)
+        count = int(kwargs.get("count", default_count))
 
         if not keyword:
             return "错误：请提供搜索关键词"
-
-        try:
-            ctx = context.context.context
-            event = context.context.event
-            umo = event.unified_msg_origin
-            provider_id = await ctx.get_current_chat_provider_id(umo)
-        except Exception as e:
-            logger.warning(f"[BilibiliSearchTool] 获取上下文失败: {e}")
-            return f"错误：获取会话上下文失败 - {e}"
 
         try:
             search_result = await search_videos(
@@ -97,36 +84,99 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
             total = search_result.get("numResults", len(videos))
 
             video_list = []
-            for i, v in enumerate(videos[:10], 1):
-                video_list.append(
-                    f"{i}. {v['title']}\n"
-                    f"   UP主: {v['author']} | 播放: {v['play']} | BV: {v['bvid']}"
-                )
+            for i, v in enumerate(videos, 1):
+                video_list.append({
+                    "index": i,
+                    "bvid": v.get("bvid", ""),
+                    "title": v.get("title", ""),
+                    "author": v.get("author", ""),
+                    "play": v.get("play", 0),
+                    "duration": v.get("duration", ""),
+                    "url": v.get("url", ""),
+                })
 
-            actual_count = min(count, len(videos))
-            result_text = (
-                f"找到 {total} 个与「{keyword}」相关的视频，正在后台处理前 {actual_count} 个...\n\n"
-                f"前 {min(10, len(videos))} 个视频:\n" + "\n".join(video_list)
-            )
+            result = {
+                "keyword": keyword,
+                "total": total,
+                "returned": len(videos),
+                "videos": video_list,
+            }
 
-            asyncio.create_task(
-                self._background_process(
-                    videos=videos[:actual_count],
-                    keyword=keyword,
-                    event=event,
-                )
-            )
-
-            return result_text
+            return json.dumps(result, ensure_ascii=False, indent=2)
 
         except Exception as e:
-            logger.error(f"[BilibiliSearchTool] 搜索失败: {e}", exc_info=True)
+            logger.error(f"[BilibiliSearchListTool] 搜索失败: {e}", exc_info=True)
             return f"搜索失败: {str(e)}"
+
+
+@dataclass
+class BilibiliSearchDownloadTool(FunctionTool[AstrAgentContext]):
+    """
+    B站视频下载转写工具
+
+    AI 调用此工具下载并转写指定的B站视频
+    """
+    name: str = "bilibili_search_download"
+    description: str = ""
+    parameters: dict = field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {
+                "folder_name": {
+                    "type": "string",
+                    "description": "文件夹名称，用于标识这批转写内容",
+                },
+                "bv_list": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "BV号数组，支持一次传入多个BV号，如 ['BV1xxx', 'BV2yyy', 'BV3zzz']。不要多次调用，一次传入所有需要处理的BV号",
+                },
+            },
+            "required": ["folder_name", "bv_list"],
+        }
+    )
+    plugin_instance: object = None
+
+    def __post_init__(self):
+        default_download = self.plugin_instance.config.get("default_download_count", 3) if self.plugin_instance else 3
+        object.__setattr__(self, 'description', (
+            f"下载并转写视频内容。"
+            f"先通过 bilibili_search_list 搜索获取BV号，再调用此工具下载转写视频内容。"
+            f"bv_list 参数支持一次传入多个BV号，建议每次下载 {default_download} 个左右。"
+            f"重要：调用一次即可，后台会自动处理所有视频，完成后会自动唤醒你继续处理，无需重复调用此工具。"
+        ))
+
+    async def call(
+        self, context: ContextWrapper[AstrAgentContext], **kwargs
+    ) -> ToolExecResult:
+        folder_name = kwargs.get("folder_name", "")
+        bv_list = kwargs.get("bv_list", [])
+
+        if not folder_name:
+            return "错误：请提供文件夹名称"
+        if not bv_list or not isinstance(bv_list, list):
+            return "错误：请提供BV号列表"
+
+        try:
+            event = context.context.event
+        except Exception as e:
+            logger.warning(f"[BilibiliSearchDownloadTool] 获取上下文失败: {e}")
+            return f"错误：获取会话上下文失败 - {e}"
+
+        asyncio.create_task(
+            self._background_process(
+                folder_name=folder_name,
+                bv_list=bv_list,
+                event=event,
+            )
+        )
+
+        return f"已开始下载转写 {len(bv_list)} 个视频，完成后会自动通知你。"
 
     async def _background_process(
         self,
-        videos: list,
-        keyword: str,
+        folder_name: str,
+        bv_list: list,
         event: AstrMessageEvent,
     ):
         """后台处理任务，完成后直接唤醒主对话"""
@@ -146,28 +196,29 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
             max_concurrent = self.plugin_instance.config.get("search_max_concurrent", 2)
             quality = self.plugin_instance.config.get("download_quality", "fast")
 
-            result = await search_service.process_batch(
-                videos=videos,
-                keyword=keyword,
+            result = await search_service.process_by_bv_list(
+                bv_list=bv_list,
+                folder_name=folder_name,
                 max_concurrent=max_concurrent,
                 quality=quality,
+                cookies=self.plugin_instance.bili_cookies,
             )
 
             prompt = (
-                f"B站视频搜索转写任务已完成。\n\n"
-                f"搜索关键词: {keyword}\n"
+                f"B站视频下载转写任务已完成。\n\n"
+                f"文件夹名称: {folder_name}\n"
                 f"处理结果: 成功 {result.success_count} 个，失败 {result.failed_count} 个\n"
                 f"转写文件位置: {result.folder_path}\n\n"
                 f"请使用 send_message_to_user 工具发送消息告诉用户任务完成情况，并告知转写文件保存位置。\n"
-                f"如果用户之前有具体要求（如找出播放量最高的、总结内容等），请根据转写文件内容处理后一并回复。"
+                f"如果用户之前有具体要求，请根据转写文件内容处理后一并回复。"
             )
 
             cron_event = CronMessageEvent(
                 context=self.plugin_instance.context,
                 session=event.session,
                 message=prompt,
-                sender_id="bili_search",
-                sender_name="B站搜索",
+                sender_id="bili_download",
+                sender_name="B站下载",
             )
 
             umo = cron_event.unified_msg_origin
@@ -207,17 +258,17 @@ class BilibiliSearchTool(FunctionTool[AstrAgentContext]):
             )
 
             if not agent_result:
-                logger.error("[BilibiliSearchTool] 无法构建主对话 agent")
+                logger.error("[BilibiliSearchDownloadTool] 无法构建主对话 agent")
                 return
 
             runner = agent_result.agent_runner
             async for _ in runner.step_until_done(30):
                 pass
 
-            logger.info(f"[BilibiliSearchTool] 主对话处理完成: {keyword}")
+            logger.info(f"[BilibiliSearchDownloadTool] 主对话处理完成: {folder_name}")
 
         except Exception as e:
-            logger.error(f"[BilibiliSearchTool] 后台处理失败: {e}", exc_info=True)
+            logger.error(f"[BilibiliSearchDownloadTool] 后台处理失败: {e}", exc_info=True)
             try:
                 chain = MessageChain().message(f"视频转写任务处理出错: {str(e)}")
                 await self.plugin_instance.context.send_message(event.unified_msg_origin, chain)
@@ -300,9 +351,11 @@ class BiliVideoPlugin(Star):
         self._log("══════ [BiliVideo] 插件初始化完成 ══════")
 
         # 注册 AI 工具
-        self._search_tool = BilibiliSearchTool(plugin_instance=self)
-        self.context.add_llm_tools(self._search_tool)
-        self._log("已注册 bilibili_search 工具供 AI 调用")
+        self._search_list_tool = BilibiliSearchListTool(plugin_instance=self)
+        self._search_download_tool = BilibiliSearchDownloadTool(plugin_instance=self)
+        self.context.add_llm_tools(self._search_list_tool)
+        self.context.add_llm_tools(self._search_download_tool)
+        self._log("已注册 bilibili_search_list 和 bilibili_search_download 工具供 AI 调用")
 
         if self.bili_login.is_logged_in():
             logger.info("BiliVideo 插件已加载（B站已登录）")

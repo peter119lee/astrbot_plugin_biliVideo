@@ -188,20 +188,20 @@
     "hint": "新视频总结推送到哪些QQ号（私聊），用英文逗号分隔。也可通过 /添加推送号 命令添加"
   },
   "default_count": {
-    "description": "搜索默认处理数量",
-    "type": "int",
-    "default": 3,
-    "min": 1,
-    "max": 50,
-    "hint": "AI调用搜索功能时，如果未指定数量，则使用此默认值"
-  },
-  "search_max_videos": {
-    "description": "搜索最大视频数上限",
+    "description": "搜索默认数量",
     "type": "int",
     "default": 20,
     "min": 1,
     "max": 50,
-    "hint": "单次搜索处理的最大视频数量上限，防止AI指定过多导致处理时间过长"
+    "hint": "AI调用搜索列表功能时，如果未指定数量，则使用此默认值"
+  },
+  "default_download_count": {
+    "description": "建议下载数量",
+    "type": "int",
+    "default": 3,
+    "min": 1,
+    "max": 20,
+    "hint": "建议AI每次下载转写的视频数量，非硬性限制"
   },
   "search_max_concurrent": {
     "description": "搜索下载并发数",

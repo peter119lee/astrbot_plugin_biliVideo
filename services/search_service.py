@@ -53,7 +53,7 @@ class BatchTranscriptResult:
         """生成结果摘要"""
         elapsed = self.end_time - self.start_time if self.end_time else 0
         lines = [
-            f"搜索关键词: {self.keyword}",
+            f"关键词/文件夹: {self.keyword}",
             f"任务ID: {self.task_id}",
             f"文件夹: {self.folder_path}",
             f"总计: {self.total_count} 个视频",
@@ -93,6 +93,20 @@ class SearchService:
         safe_keyword = re.sub(r'[\\/:*?"<>|]', '_', keyword)[:30]
         folder_name = f"{task_id}_{safe_keyword}"
         folder_path = os.path.join(self.search_dir, folder_name)
+        os.makedirs(folder_path, exist_ok=True)
+        return task_id, folder_path
+
+    def create_task_folder_by_name(self, folder_name: str) -> tuple[str, str]:
+        """
+        根据文件夹名创建任务文件夹
+
+        :param folder_name: 文件夹名称
+        :return: (task_id, folder_path)
+        """
+        task_id = f"{int(time.time() * 1000)}"
+        safe_name = re.sub(r'[\\/:*?"<>|]', '_', folder_name)[:30]
+        full_folder_name = f"{task_id}_{safe_name}"
+        folder_path = os.path.join(self.search_dir, full_folder_name)
         os.makedirs(folder_path, exist_ok=True)
         return task_id, folder_path
 
@@ -236,6 +250,120 @@ class SearchService:
         logger.info(f"[SearchService] 批量处理完成: {result.success_count}/{result.total_count}")
 
         return result
+
+    async def process_by_bv_list(
+        self,
+        bv_list: List[str],
+        folder_name: str,
+        quality: str = "fast",
+        max_concurrent: int = 2,
+        cookies: Optional[dict] = None,
+    ) -> BatchTranscriptResult:
+        """
+        根据 BV 号列表批量处理视频
+
+        :param bv_list: BV 号列表
+        :param folder_name: 文件夹名称
+        :param quality: 音频下载质量
+        :param max_concurrent: 最大并发数
+        :param cookies: B站 cookies
+        :return: 批量转写结果
+        """
+        from ..services.bilibili_api import get_video_info
+
+        task_id, folder_path = self.create_task_folder_by_name(folder_name)
+
+        result = BatchTranscriptResult(
+            task_id=task_id,
+            keyword=folder_name,
+            folder_path=folder_path,
+            total_count=len(bv_list),
+            start_time=time.time(),
+        )
+
+        videos_info = []
+        for bvid in bv_list:
+            try:
+                video_info = await get_video_info(bvid, cookies=cookies)
+                if video_info:
+                    videos_info.append({
+                        "bvid": bvid,
+                        "title": video_info.get("title", ""),
+                        "author": video_info.get("owner", {}).get("name", ""),
+                        "play": video_info.get("stat", {}).get("view", 0),
+                        "danmaku": video_info.get("stat", {}).get("danmaku", 0),
+                        "like": video_info.get("stat", {}).get("like", 0),
+                        "duration": self._format_duration(video_info.get("duration", 0)),
+                        "pubdate": video_info.get("pubdate", 0),
+                        "description": video_info.get("desc", ""),
+                        "url": f"https://www.bilibili.com/video/{bvid}",
+                    })
+                else:
+                    logger.warning(f"[SearchService] 无法获取视频信息: {bvid}")
+                    videos_info.append({
+                        "bvid": bvid,
+                        "title": f"未知视频_{bvid}",
+                        "author": "",
+                        "play": 0,
+                        "danmaku": 0,
+                        "like": 0,
+                        "duration": "",
+                        "pubdate": 0,
+                        "description": "",
+                        "url": f"https://www.bilibili.com/video/{bvid}",
+                    })
+            except Exception as e:
+                logger.error(f"[SearchService] 获取视频信息失败 {bvid}: {e}")
+                videos_info.append({
+                    "bvid": bvid,
+                    "title": f"获取失败_{bvid}",
+                    "author": "",
+                    "play": 0,
+                    "danmaku": 0,
+                    "like": 0,
+                    "duration": "",
+                    "pubdate": 0,
+                    "description": "",
+                    "url": f"https://www.bilibili.com/video/{bvid}",
+                })
+
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def process_with_semaphore(video_info: dict) -> VideoTranscriptResult:
+            async with semaphore:
+                return await self.process_single_video(video_info, folder_path, quality)
+
+        tasks = [process_with_semaphore(v) for v in videos_info]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for r in results:
+            if isinstance(r, Exception):
+                logger.error(f"[SearchService] 任务异常: {r}")
+                result.failed_count += 1
+            elif isinstance(r, VideoTranscriptResult):
+                result.videos.append(r)
+                if r.success:
+                    result.success_count += 1
+                else:
+                    result.failed_count += 1
+
+        result.end_time = time.time()
+
+        summary_file = os.path.join(folder_path, "_summary.txt")
+        with open(summary_file, 'w', encoding='utf-8') as f:
+            f.write(result.to_summary())
+
+        logger.info(f"[SearchService] BV列表处理完成: {result.success_count}/{result.total_count}")
+
+        return result
+
+    def _format_duration(self, seconds: int) -> str:
+        """格式化时长"""
+        if not seconds:
+            return ""
+        minutes = seconds // 60
+        secs = seconds % 60
+        return f"{minutes}:{secs:02d}"
 
     def _format_transcript(self, transcript: TranscriptResult) -> str:
         """格式化转写内容"""

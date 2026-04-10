@@ -137,7 +137,7 @@ apt install -y wkhtmltopdf
 
 ## 🤖 AI 智能搜索
 
-直接与 AI 对话即可搜索 B站视频，无需记忆命令。
+直接与 AI 对话即可搜索 B站视频、理解视频内容并进行深度交流，无需记忆命令。
 
 ### 使用方式
 
@@ -307,7 +307,7 @@ Scan the QR code with the Bilibili mobile app.
 
 ## 🤖 AI Smart Search
 
-Search Bilibili videos via natural conversation with AI - no commands needed.
+Search Bilibili videos, understand video content, and engage in deep conversations with AI - no commands needed.
 
 ### Usage
 

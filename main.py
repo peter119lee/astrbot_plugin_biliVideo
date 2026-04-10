@@ -163,13 +163,23 @@ class BilibiliSearchDownloadTool(FunctionTool[AstrAgentContext]):
             logger.warning(f"[BilibiliSearchDownloadTool] 获取上下文失败: {e}")
             return f"错误：获取会话上下文失败 - {e}"
 
-        asyncio.create_task(
+        old_task = self.plugin_instance._current_download_task
+        if old_task and not old_task.done():
+            logger.info("[BilibiliSearchDownloadTool] 取消旧的下载任务")
+            old_task.cancel()
+            try:
+                await old_task
+            except asyncio.CancelledError:
+                pass
+
+        new_task = asyncio.create_task(
             self._background_process(
                 folder_name=folder_name,
                 bv_list=bv_list,
                 event=event,
             )
         )
+        self.plugin_instance._current_download_task = new_task
 
         return f"已开始下载转写 {len(bv_list)} 个视频，完成后会自动通知你。"
 
@@ -213,6 +223,7 @@ class BilibiliSearchDownloadTool(FunctionTool[AstrAgentContext]):
                 f"如果用户之前有具体要求，请根据转写文件内容处理后一并回复。"
             )
 
+            logger.info(f"[BilibiliSearchDownloadTool] 原对话session: {str(event.session)}")
             cron_event = CronMessageEvent(
                 context=self.plugin_instance.context,
                 session=event.session,
@@ -265,8 +276,67 @@ class BilibiliSearchDownloadTool(FunctionTool[AstrAgentContext]):
             async for _ in runner.step_until_done(30):
                 pass
 
+            sent_message = None
+            try:
+                for msg in runner.run_context.messages:
+                    if getattr(msg, 'role', None) != "assistant":
+                        continue
+                    tool_calls = getattr(msg, 'tool_calls', None)
+                    if not tool_calls:
+                        continue
+                    for tc in tool_calls:
+                        try:
+                            func = getattr(tc, 'function', None)
+                            if not func:
+                                continue
+                            func_name = getattr(func, 'name', '')
+                            if func_name != "send_message_to_user":
+                                continue
+                            args_str = getattr(func, 'arguments', '{}')
+                            args = json.loads(args_str) if args_str else {}
+                            messages = args.get("messages", [])
+                            if isinstance(messages, list):
+                                for m in messages:
+                                    if isinstance(m, dict) and m.get("type") == "plain":
+                                        text = m.get("text", "")
+                                        if isinstance(text, str) and text:
+                                            sent_message = text
+                                            break
+                        except (json.JSONDecodeError, TypeError, AttributeError):
+                            continue
+                        if sent_message:
+                            break
+                    if sent_message:
+                        break
+            except Exception as e:
+                logger.warning(f"[BilibiliSearchDownloadTool] 提取发送消息失败: {e}")
+
+            final_resp = runner.get_final_llm_resp()
+            assistant_content = sent_message
+            if not assistant_content and final_resp:
+                assistant_content = getattr(final_resp, 'completion_text', '') or ""
+
+            if assistant_content:
+                conv_mgr = self.plugin_instance.context.conversation_manager
+                if conv_mgr and conv:
+                    try:
+                        history = json.loads(conv.history) if conv.history else []
+                        history.append({"role": "user", "content": prompt})
+                        history.append({"role": "assistant", "content": assistant_content})
+                        await conv_mgr.update_conversation(
+                            umo,
+                            conv.cid,
+                            history=history,
+                        )
+                        logger.info(f"[BilibiliSearchDownloadTool] 已保存消息到对话历史")
+                    except Exception as e:
+                        logger.warning(f"[BilibiliSearchDownloadTool] 保存历史失败: {e}")
+
             logger.info(f"[BilibiliSearchDownloadTool] 主对话处理完成: {folder_name}")
 
+        except asyncio.CancelledError:
+            logger.info(f"[BilibiliSearchDownloadTool] 任务被取消: {folder_name}")
+            raise
         except Exception as e:
             logger.error(f"[BilibiliSearchDownloadTool] 后台处理失败: {e}", exc_info=True)
             try:
@@ -326,6 +396,7 @@ class BiliVideoPlugin(Star):
 
         # 定时任务
         self._check_task = None
+        self._current_download_task = None  # 当前下载任务
         self._running = False
 
         # 启动定时检查

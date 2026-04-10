@@ -54,6 +54,14 @@ class BilibiliSearchListTool(FunctionTool[AstrAgentContext]):
                     "type": "integer",
                     "description": "返回的视频数量，不指定则使用配置默认值",
                 },
+                "order": {
+                    "type": "string",
+                    "description": "排序方式：totalrank(综合排序)、click(播放量从高到低)、pubdate(最新发布)、dm(弹幕数)、stow(收藏数)。默认为 totalrank",
+                },
+                "duration": {
+                    "type": "integer",
+                    "description": "时长过滤：0(全部)、1(10分钟内)、2(10-30分钟)、3(30-60分钟)、4(60分钟以上)。默认为 0",
+                },
             },
             "required": ["keyword"],
         }
@@ -66,14 +74,25 @@ class BilibiliSearchListTool(FunctionTool[AstrAgentContext]):
         keyword = kwargs.get("keyword", "")
         default_count = self.plugin_instance.config.get("default_count", 20)
         count = int(kwargs.get("count", default_count))
+        order = kwargs.get("order", "totalrank")
+        duration = int(kwargs.get("duration", 0))
 
         if not keyword:
             return "错误：请提供搜索关键词"
+
+        valid_orders = ["totalrank", "click", "pubdate", "dm", "stow"]
+        if order not in valid_orders:
+            order = "totalrank"
+
+        if duration not in [0, 1, 2, 3, 4]:
+            duration = 0
 
         try:
             search_result = await search_videos(
                 keyword=keyword,
                 page_size=count,
+                order=order,
+                duration=duration,
                 cookies=self.plugin_instance.bili_cookies if self.plugin_instance else None,
             )
 

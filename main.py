@@ -216,9 +216,7 @@ class BilibiliSearchDownloadTool(FunctionTool[AstrAgentContext]):
                 _get_session_conv,
                 build_main_agent,
             )
-            from astrbot.core.astr_main_agent_resources import (
-                SEND_MESSAGE_TO_USER_TOOL,
-            )
+            from astrbot.core.tools.registry import get_builtin_tool_class
             from astrbot.core.provider.entities import ProviderRequest
 
             search_service = self.plugin_instance.search_service
@@ -309,7 +307,9 @@ class BilibiliSearchDownloadTool(FunctionTool[AstrAgentContext]):
             req.prompt = prompt
             if not req.func_tool:
                 req.func_tool = ToolSet()
-            req.func_tool.add_tool(SEND_MESSAGE_TO_USER_TOOL)
+            tool_cls = get_builtin_tool_class("send_message_to_user")
+            if tool_cls:
+                req.func_tool.add_tool(tool_cls())
 
             agent_result = await build_main_agent(
                 event=cron_event,

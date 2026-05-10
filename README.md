@@ -5,7 +5,7 @@
 
   <br/>
 
-  <img src="https://img.shields.io/badge/version-v1.0.2-blue" />
+  <img src="https://img.shields.io/badge/version-v1.1.0-blue" />
   <img src="https://img.shields.io/badge/AstrBot-v4.0+-green" />
   <img src="https://img.shields.io/badge/platform-Bilibili-ff69b4" />
   <img src="https://img.shields.io/badge/license-MIT-orange" />
@@ -39,6 +39,7 @@
 | 🔐 **扫码登录** | 在聊天中扫码登录B站，无需手动填写 Cookie |
 | 🛡️ **群聊权限控制** | 支持黑名单 / 白名单模式 |
 | 📱 **小程序链接识别** | 群里分享B站小程序/短链自动推送视频信息 |
+| 🤖 **AI 智能搜索** | 直接与 AI 对话搜索视频，自动转写并分析内容 |
 
 ## 📦 安装
 
@@ -134,6 +135,35 @@ apt install -y wkhtmltopdf
 /移除推送 123456789
 ```
 
+## 🤖 AI 智能搜索
+
+直接与 AI 对话即可搜索 B站视频、理解视频内容并进行深度交流，无需记忆命令。
+
+### 使用方式
+
+```
+用户: 帮我搜索 Python 教程视频
+用户: 从搜索结果里下载播放量最高的 3 个视频并总结
+用户: 搜索鸣潮相关的视频，告诉我漂泊者做了什么
+```
+
+### 工作流程
+
+AI 会自动组合使用两个工具：
+
+1. **bilibili_search_list**: 搜索视频并返回列表（包含BV号）
+2. **bilibili_search_download**: 根据BV号下载转写视频内容
+
+转写完成后 AI 自动继续处理用户需求，转写文件保存在 `/AstrBot/data/plugin_data/astrbot_plugin_bilivideo/search_results/`
+
+### 相关配置
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `default_count` | `20` | 搜索列表默认返回数量 |
+| `default_download_count` | `3` | 建议每次下载转写的数量 |
+| `search_max_concurrent` | `1` | 同时下载转写的并发数 |
+
 ## ⚙️ 配置项
 
 在 AstrBot 管理面板 → 插件配置中可设置：
@@ -161,6 +191,9 @@ apt install -y wkhtmltopdf
 | `detect_show_link` | `true` | 推送时显示BV号链接 |
 | `detect_show_stats` | `true` | 推送时显示播放量等数据 |
 | `detect_auto_summary` | `false` | 识别链接后自动生成总结（消耗LLM额度） |
+| `default_count` | `20` | 搜索列表默认返回数量 |
+| `default_download_count` | `3` | 建议每次下载转写的数量 |
+| `search_max_concurrent` | `1` | 搜索下载并发数 |
 | `debug_mode` | `false` | 启用调试日志 |
 
 ## 📋 系统依赖
@@ -212,6 +245,7 @@ You can also **subscribe to content creators** and receive automatic summary pus
 | 🔐 **QR Login** | Login to Bilibili by scanning a QR code in chat |
 | 🛡️ **Access Control** | Blacklist / whitelist modes |
 | 📱 **Mini-App Detection** | Auto-detect Bilibili links shared in chat and push video info |
+| 🤖 **AI Smart Search** | Search videos via natural conversation with AI, auto-transcribe and analyze |
 
 ## 📦 Installation
 
@@ -271,6 +305,35 @@ Scan the QR code with the Bilibili mobile app.
 > **💡 Tip**: `<creator>` accepts numeric UID, space link URL, or creator nickname.
 > When push targets are configured, summaries are sent **only** to those targets.
 
+## 🤖 AI Smart Search
+
+Search Bilibili videos, understand video content, and engage in deep conversations with AI - no commands needed.
+
+### Usage
+
+```
+User: Search for Python tutorial videos
+User: Download the top 3 videos by views and summarize them
+User: Search videos about Genshin Impact, tell me what the traveler did
+```
+
+### How It Works
+
+AI combines two tools automatically:
+
+1. **bilibili_search_list**: Search videos and return list (with BV IDs)
+2. **bilibili_search_download**: Download and transcribe video content by BV IDs
+
+AI automatically continues processing when transcription is done. Transcripts saved to `/AstrBot/data/plugin_data/astrbot_plugin_bilivideo/search_results/`
+
+### Related Configuration
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `default_count` | `20` | Default search list count |
+| `default_download_count` | `3` | Suggested download count per batch |
+| `search_max_concurrent` | `1` | Concurrent download/transcribe limit |
+
 ## ⚙️ Configuration
 
 | Option | Default | Description |
@@ -292,6 +355,9 @@ Scan the QR code with the Bilibili mobile app.
 | `detect_show_link` | `true` | Show BV link in push |
 | `detect_show_stats` | `true` | Show view/danmaku/like counts |
 | `detect_auto_summary` | `false` | Auto-generate summary on link detect |
+| `default_count` | `20` | Default search list count |
+| `default_download_count` | `3` | Suggested download count per batch |
+| `search_max_concurrent` | `1` | Concurrent download/transcribe limit |
 | `debug_mode` | `false` | Enable debug logging |
 
 ## ⚠️ Notes

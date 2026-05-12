@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.star import Context, Star, StarTools
-from astrbot.api.message_components import Plain, Image
+from astrbot.api.message_components import Plain, Image, Node, Nodes
 from astrbot.api import logger
 
 from astrbot.core.agent.run_context import ContextWrapper
@@ -26,7 +26,7 @@ from .services.bilibili_login import BilibiliLogin
 from .services.note_service import NoteService
 from .services.search_service import SearchService
 from .utils.url_parser import detect_platform, extract_bilibili_mid
-from .utils.md_to_image import render_note_image
+from .utils.md_to_image import render_note_image, render_note_images
 
 
 @dataclass
@@ -211,13 +211,28 @@ class BilibiliSearchDownloadTool(FunctionTool[AstrAgentContext]):
         """后台处理任务，完成后直接唤醒主对话"""
         try:
             from astrbot.core.cron.events import CronMessageEvent
-            from astrbot.core.astr_main_agent import (
-                MainAgentBuildConfig,
-                _get_session_conv,
-                build_main_agent,
-            )
-            from astrbot.core.tools.registry import get_builtin_tool_class
             from astrbot.core.provider.entities import ProviderRequest
+
+            # 兼容不同版本的 AstrBot 工具注册 API 和 agent 构建 API
+            try:
+                from astrbot.core.astr_main_agent import (
+                    MainAgentBuildConfig,
+                    _get_session_conv,
+                    build_main_agent,
+                )
+            except (ImportError, ModuleNotFoundError):
+                # 降级：不使用 agent 构建，直接发送完成消息
+                build_main_agent = None
+                MainAgentBuildConfig = None
+                _get_session_conv = None
+
+            try:
+                from astrbot.core.tools.registry import get_builtin_tool_class
+            except (ImportError, ModuleNotFoundError):
+                try:
+                    from astrbot.core.tools import get_builtin_tool_class
+                except (ImportError, ModuleNotFoundError):
+                    get_builtin_tool_class = lambda x: None
 
             search_service = self.plugin_instance.search_service
             max_concurrent = self.plugin_instance.config.get("search_max_concurrent", 1)
@@ -225,8 +240,15 @@ class BilibiliSearchDownloadTool(FunctionTool[AstrAgentContext]):
 
             umo = event.unified_msg_origin
             progress_msg_sent = {"count": 0}
+            
+            # 检查是否显示进度
+            show_progress = self.plugin_instance.config.get("search_show_progress", True)
 
             async def progress_callback(progress: dict):
+                # 如果配置关闭了进度显示，只在最后一条时发送
+                if not show_progress and not progress.get("is_last", False):
+                    return
+                
                 try:
                     completed = progress.get("completed", 0)
                     total = progress.get("total", 0)
@@ -261,134 +283,215 @@ class BilibiliSearchDownloadTool(FunctionTool[AstrAgentContext]):
                 quality=quality,
                 cookies=self.plugin_instance.bili_cookies,
                 progress_callback=progress_callback,
+                prefer_subtitle=self.plugin_instance.config.get("prefer_subtitle", True),
             )
 
-            prompt = (
-                f"B站视频下载转写任务已完成。\n\n"
-                f"文件夹名称: {folder_name}\n"
-                f"处理结果: 成功 {result.success_count} 个，失败 {result.failed_count} 个\n"
-                f"转写文件位置: {result.folder_path}\n\n"
-                f"必须使用 send_message_to_user 工具发送消息告诉用户任务完成情况，并告知转写文件保存位置。\n"
-                f"如果用户之前有具体要求，请根据转写文件内容处理后一并在sendMessageToUser中回复。"
-            )
+            # 读取所有成功转写的内容
+            all_transcripts = []
+            video_info_list = []  # 存储视频信息用于合并转发
+            for video in result.videos:
+                if video.success and video.transcript_text:
+                    all_transcripts.append({
+                        "title": video.title,
+                        "author": video.author,
+                        "url": video.url,
+                        "bvid": video.bvid,
+                        "transcript": video.transcript_text,
+                    })
+                    
+                    # 尝试获取视频详细信息（用于合并转发）
+                    try:
+                        video_info = await get_video_info(video.bvid, cookies=self.plugin_instance.bili_cookies)
+                        if video_info:
+                            video_info_list.append(video_info)
+                    except Exception as e:
+                        logger.warning(f"[BilibiliSearchDownloadTool] 获取视频 {video.bvid} 详细信息失败: {e}")
 
-            cron_event = CronMessageEvent(
-                context=self.plugin_instance.context,
-                session=event.session,
-                message=prompt,
-                sender_id="bili_download",
-                sender_name="B站下载",
-            )
+            # 直接生成总结并发送
+            if all_transcripts:
+                logger.info(f"[BilibiliSearchDownloadTool] 开始生成总结，共 {len(all_transcripts)} 个视频")
 
-            umo = cron_event.unified_msg_origin
-            cfg = self.plugin_instance.context.get_config(umo=umo)
-            tool_call_timeout = cfg.get("provider_settings", {}).get("tool_call_timeout", 120)
+                # 构建总结提示词
+                transcript_text = "\n\n".join([
+                    f"【视频 {i+1}】{t['title']}\n{t['transcript']}"
+                    for i, t in enumerate(all_transcripts)
+                ])
 
-            config = MainAgentBuildConfig(
-                tool_call_timeout=tool_call_timeout,
-                llm_safety_mode=False,
-                streaming_response=False,
-            )
-
-            req = ProviderRequest()
-            conv = await _get_session_conv(event=cron_event, plugin_context=self.plugin_instance.context)
-            req.conversation = conv
-
-            context_history = json.loads(conv.history) if conv.history else []
-            if context_history:
-                req.contexts = context_history
-                context_dump = req._print_friendly_context()
-                req.contexts = []
-                req.system_prompt += (
-                    "\n\nBelow is your previous conversation history:\n"
-                    f"---\n{context_dump}\n---\n"
+                summary_prompt = (
+                    "请为以下B站视频内容生成一份详细的结构化总结。\n\n"
+                    "要求：\n"
+                    "1. 使用 Markdown 格式\n"
+                    "2. 包含：核心观点、关键要点、时间线（如有）、总结\n"
+                    "3. 语言简洁清晰，突出重点\n"
+                    "4. 如果是多个视频，分别总结并加上视频标题\n\n"
+                    f"{transcript_text}"
                 )
 
-            req.prompt = prompt
-            if not req.func_tool:
-                req.func_tool = ToolSet()
-            tool_cls = get_builtin_tool_class("send_message_to_user")
-            if tool_cls:
-                req.func_tool.add_tool(tool_cls())
-
-            agent_result = await build_main_agent(
-                event=cron_event,
-                plugin_context=self.plugin_instance.context,
-                config=config,
-                req=req,
-            )
-
-            if not agent_result:
-                logger.error("[BilibiliSearchDownloadTool] 无法构建主对话 agent")
-                return
-
-            runner = agent_result.agent_runner
-            async for _ in runner.step_until_done(30):
-                pass
-
-            sent_message = None
-            try:
-                for msg in runner.run_context.messages:
-                    if getattr(msg, 'role', None) != "assistant":
-                        continue
-                    tool_calls = getattr(msg, 'tool_calls', None)
-                    if not tool_calls:
-                        continue
-                    for tc in tool_calls:
-                        try:
-                            func = getattr(tc, 'function', None)
-                            if not func:
-                                continue
-                            func_name = getattr(func, 'name', '')
-                            if func_name != "send_message_to_user":
-                                continue
-                            args_str = getattr(func, 'arguments', '{}')
-                            args = json.loads(args_str) if args_str else {}
-                            messages = args.get("messages", [])
-                            if isinstance(messages, list):
-                                for m in messages:
-                                    if isinstance(m, dict) and m.get("type") == "plain":
-                                        text = m.get("text", "")
-                                        if isinstance(text, str) and text:
-                                            sent_message = text
-                                            break
-                        except (json.JSONDecodeError, TypeError, AttributeError):
-                            continue
-                        if sent_message:
-                            break
-                    if sent_message:
-                        break
-            except Exception as e:
-                logger.warning(f"[BilibiliSearchDownloadTool] 提取发送消息失败: {e}")
-
-            final_resp = runner.get_final_llm_resp()
-            assistant_content = sent_message
-            if not assistant_content and final_resp:
-                assistant_content = getattr(final_resp, 'completion_text', '') or ""
-            if not assistant_content:
-                assistant_content = (
-                    f"视频转写任务已完成。\n"
-                    f"文件夹: {folder_name}\n"
-                    f"成功: {result.success_count} 个，失败: {result.failed_count} 个\n"
-                    f"文件位置: {result.folder_path}"
-                )
-
-            conv_mgr = self.plugin_instance.context.conversation_manager
-            if conv_mgr and conv:
+                # 调用 LLM 生成总结
                 try:
-                    history = json.loads(conv.history) if conv.history else []
-                    history.append({"role": "user", "content": prompt})
-                    history.append({"role": "assistant", "content": assistant_content})
-                    await conv_mgr.update_conversation(
-                        umo,
-                        conv.cid,
-                        history=history,
-                    )
-                    logger.info(f"[BilibiliSearchDownloadTool] 已保存消息到对话历史")
-                except Exception as e:
-                    logger.warning(f"[BilibiliSearchDownloadTool] 保存历史失败: {e}")
+                    note_text = await self.plugin_instance._ask_llm(summary_prompt)
 
-            logger.info(f"[BilibiliSearchDownloadTool] 主对话处理完成: {folder_name}")
+                    # 渲染并发送（支持图片和文本模式）
+                    render_result = self.plugin_instance._render_and_get_chain(note_text)
+
+                    # 检查是否启用合并转发模式
+                    if self.plugin_instance.config.get("enable_forward_message", False):
+                        logger.info("[BilibiliSearchDownloadTool] 使用合并转发模式发送总结")
+                        
+                        # 如果是多个视频，为每个视频创建合并转发
+                        if len(all_transcripts) > 1:
+                            # 多视频：创建一个包含所有视频的合并转发
+                            from astrbot.api.message_components import Node, Nodes, Plain, Image
+                            import time as _time
+                            
+                            nodes = []
+                            bot_name = "BiliVideo 助手"
+                            bot_uin = "0"
+                            
+                            # 添加标题节点
+                            nodes.append(Node(
+                                content=[Plain(f"📝 搜索结果总结（共 {len(all_transcripts)} 个视频）")],
+                                name=bot_name,
+                                uin=bot_uin
+                            ))
+                            
+                            # 为每个视频添加信息节点（包含封面和详细信息）
+                            for i, t in enumerate(all_transcripts, 1):
+                                video_content = []
+                                
+                                # 尝试添加封面图
+                                if i <= len(video_info_list):
+                                    video_info = video_info_list[i-1]
+                                    pic_url = video_info.get("pic", "")
+                                    if pic_url:
+                                        if pic_url.startswith("//"):
+                                            pic_url = "https:" + pic_url
+                                        video_content.append(Image.fromURL(pic_url))
+                                    
+                                    # 使用详细信息
+                                    video_info_text = f"📺 视频 {i}: {video_info.get('title', t['title'])}\n"
+                                    video_info_text += f"👤 UP主: {video_info.get('owner_name', t['author'])}\n"
+                                    
+                                    # 添加播放数据
+                                    def fmt_num(n):
+                                        if isinstance(n, (int, float)) and n >= 10000:
+                                            return f"{n / 10000:.1f}万"
+                                        return str(n)
+                                    
+                                    video_info_text += (
+                                        f"▶️ {fmt_num(video_info.get('view', 0))}播放  "
+                                        f"💬 {fmt_num(video_info.get('danmaku', 0))}弹幕  "
+                                        f"👍 {fmt_num(video_info.get('like', 0))}点赞\n"
+                                    )
+                                    video_info_text += f"🔗 {t['url']}"
+                                else:
+                                    # 回退到基本信息
+                                    video_info_text = (
+                                        f"📺 视频 {i}: {t['title']}\n"
+                                        f"👤 UP主: {t['author']}\n"
+                                        f"🔗 {t['url']}"
+                                    )
+                                
+                                video_content.append(Plain(video_info_text))
+                                nodes.append(Node(
+                                    content=video_content,
+                                    name=bot_name,
+                                    uin=bot_uin
+                                ))
+                            
+                            # 添加总结节点
+                            if isinstance(render_result, list):
+                                # 图片模式
+                                for i, img in enumerate(render_result):
+                                    label = (
+                                        "📝 AI 综合总结"
+                                        if i == 0
+                                        else f"📝 AI 综合总结（第 {i + 1} 页）"
+                                    )
+                                    nodes.append(Node(
+                                        content=[Plain(label), img],
+                                        name=bot_name,
+                                        uin=bot_uin
+                                    ))
+                            else:
+                                # 文本模式
+                                nodes.append(Node(
+                                    content=[Plain(f"📝 AI 综合总结\n\n{render_result}")],
+                                    name=bot_name,
+                                    uin=bot_uin
+                                ))
+                            
+                            forward_nodes = Nodes(nodes=nodes)
+                            chain = MessageChain()
+                            chain.chain.append(forward_nodes)
+                            await self.plugin_instance.context.send_message(umo, chain)
+                        else:
+                            # 单视频：获取视频详细信息并使用标准合并转发
+                            try:
+                                video_info = await get_video_info(
+                                    all_transcripts[0]['bvid'],
+                                    cookies=self.plugin_instance.bili_cookies
+                                )
+                                if video_info:
+                                    forward_nodes = self.plugin_instance._build_forward_nodes(
+                                        video_info, render_result
+                                    )
+                                    chain = MessageChain()
+                                    chain.chain.append(forward_nodes)
+                                    await self.plugin_instance.context.send_message(umo, chain)
+                                else:
+                                    # 回退到普通模式
+                                    if isinstance(render_result, list):
+                                        for img_comp in render_result:
+                                            chain = MessageChain()
+                                            chain.chain.append(img_comp)
+                                            await self.plugin_instance.context.send_message(umo, chain)
+                                    else:
+                                        chain = MessageChain().message(render_result)
+                                        await self.plugin_instance.context.send_message(umo, chain)
+                            except Exception as e:
+                                logger.error(f"[BilibiliSearchDownloadTool] 获取视频信息失败: {e}")
+                                # 回退到普通模式
+                                if isinstance(render_result, list):
+                                    for img_comp in render_result:
+                                        chain = MessageChain()
+                                        chain.chain.append(img_comp)
+                                        await self.plugin_instance.context.send_message(umo, chain)
+                                else:
+                                    chain = MessageChain().message(render_result)
+                                    await self.plugin_instance.context.send_message(umo, chain)
+                    else:
+                        # 普通模式
+                        if isinstance(render_result, list):
+                            # 图片模式
+                            for img_comp in render_result:
+                                chain = MessageChain()
+                                chain.chain.append(img_comp)
+                                await self.plugin_instance.context.send_message(umo, chain)
+                        else:
+                            # 文本模式
+                            chain = MessageChain().message(render_result)
+                            await self.plugin_instance.context.send_message(umo, chain)
+
+                    logger.info("[BilibiliSearchDownloadTool] 总结已生成并发送")
+                    return
+                except Exception as e:
+                    logger.error(f"[BilibiliSearchDownloadTool] 生成总结失败: {e}")
+                    # 降级：发送完成消息
+
+            # 降级：发送完成消息
+            completion_msg = (
+                f"📝 B站视频下载转写任务已完成\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"📂 文件夹: {folder_name}\n"
+                f"✅ 成功: {result.success_count} 个\n"
+                f"❌ 失败: {result.failed_count} 个\n"
+                f"📁 文件位置: {result.folder_path}"
+            )
+            chain = MessageChain().message(completion_msg)
+            await self.plugin_instance.context.send_message(umo, chain)
+
+            logger.info(f"[BilibiliSearchDownloadTool] 任务完成: {folder_name}")
 
         except asyncio.CancelledError:
             logger.info(f"[BilibiliSearchDownloadTool] 任务被取消: {folder_name}")
@@ -569,6 +672,7 @@ class BiliVideoPlugin(Star):
     def _render_and_get_chain(self, note_text: str):
         """
         将总结渲染为图片并返回消息链组件，或回退到纯文本。
+        支持长内容自动拆分为多张图片。
 
         :return: list[Image] (图片模式) 或 str (文本模式)
         """
@@ -576,12 +680,36 @@ class BiliVideoPlugin(Star):
             self._log("[Render] output_image=False, 使用纯文本")
             return note_text
 
-        # 生成唯一文件名
         import time
-        img_filename = f"note_{int(time.time() * 1000)}.png"
-        img_path = os.path.join(self.data_dir, "images", img_filename)
+        base_filename = f"note_{int(time.time() * 1000)}"
+        img_dir = os.path.join(self.data_dir, "images")
 
-        self._log(f"[Render] 开始渲染图片: {img_path}")
+        # 检测是否需要分页（按 h2 章节数量）
+        chapter_count = note_text.count('\n## ')
+        enable_auto_split = self.config.get("enable_auto_split", True)
+        max_cards = self.config.get("max_cards_per_image", 6)
+
+        self._log(f"[Render] 检测到 {chapter_count} 个章节, 单图限制 {max_cards} 个")
+
+        if enable_auto_split and chapter_count > max_cards:
+            # 使用多图渲染
+            self._log(f"[Render] 启用多图渲染模式")
+            image_paths = render_note_images(
+                note_text,
+                output_dir=img_dir,
+                base_filename=base_filename,
+                max_cards_per_image=max_cards,
+            )
+
+            if image_paths:
+                self._log(f"[Render] 多图渲染成功: {len(image_paths)} 张")
+                return [Image.fromFileSystem(p) for p in image_paths]
+            else:
+                self._log("[Render] 多图渲染失败, 尝试单图渲染")
+
+        # 单张图片模式（原有逻辑）
+        img_path = os.path.join(img_dir, f"{base_filename}.png")
+        self._log(f"[Render] 开始渲染单张图片: {img_path}")
         result = render_note_image(note_text, img_path)
 
         if result and os.path.exists(result):
@@ -590,6 +718,134 @@ class BiliVideoPlugin(Star):
         else:
             self._log("[Render] 图片渲染失败, 回退到纯文本")
             return note_text
+
+    def _build_forward_nodes(
+        self,
+        video_info: dict,
+        note_result,
+        bot_name: str = "BiliVideo 助手",
+        bot_uin: str = "0",
+    ) -> Nodes:
+        """
+        构建合并转发消息节点，将视频信息和 AI 总结打包在一起。
+
+        :param video_info: get_video_info() 返回的视频信息字典
+        :param note_result: _render_and_get_chain() 的返回值 (list[Image] 或 str)
+        :param bot_name: 转发消息中显示的发送者名称
+        :param bot_uin: 转发消息中显示的发送者 QQ 号
+        :return: Nodes 对象
+        """
+        import time as _time
+
+        nodes: list[Node] = []
+
+        # ── Node 1: 视频封面 + 标题 ──
+        cover_content: list = []
+        pic_url = video_info.get("pic", "")
+        if pic_url:
+            if pic_url.startswith("//"):
+                pic_url = "https:" + pic_url
+            cover_content.append(Image.fromURL(pic_url))
+        cover_content.append(Plain(f"📺 {video_info.get('title', '未知视频')}"))
+        nodes.append(Node(content=cover_content, name=bot_name, uin=bot_uin))
+
+        # ── Node 2: 视频详细信息 ──
+        def _fmt_num(n) -> str:
+            if isinstance(n, (int, float)) and n >= 10000:
+                return f"{n / 10000:.1f}万"
+            return str(n)
+
+        info_lines: list[str] = []
+        info_lines.append(f"👤 UP主: {video_info.get('owner_name', '未知')}")
+
+        desc = video_info.get("desc", "")
+        if desc:
+            if len(desc) > 150:
+                desc = desc[:150] + "..."
+            info_lines.append(f"📝 简介: {desc}")
+
+        pubdate = video_info.get("pubdate")
+        if pubdate:
+            try:
+                pub_str = _time.strftime(
+                    "%Y-%m-%d %H:%M", _time.localtime(pubdate)
+                )
+                info_lines.append(f"📅 发布时间: {pub_str}")
+            except Exception:
+                pass
+
+        info_lines.append(
+            f"▶️ {_fmt_num(video_info.get('view', 0))}播放  "
+            f"💬 {_fmt_num(video_info.get('danmaku', 0))}弹幕  "
+            f"👍 {_fmt_num(video_info.get('like', 0))}点赞"
+        )
+
+        bvid = video_info.get("bvid", "")
+        if bvid:
+            info_lines.append(f"🔗 https://www.bilibili.com/video/{bvid}")
+
+        nodes.append(
+            Node(
+                content=[Plain("\n".join(info_lines))],
+                name=bot_name,
+                uin=bot_uin,
+            )
+        )
+
+        # ── Node 3+: AI 总结 ──
+        if isinstance(note_result, list):
+            # 图片模式：每张图片单独一个 Node
+            for i, img in enumerate(note_result):
+                label = (
+                    "📝 AI 视频总结"
+                    if i == 0
+                    else f"📝 AI 视频总结（第 {i + 1} 页）"
+                )
+                nodes.append(
+                    Node(content=[Plain(label), img], name=bot_name, uin=bot_uin)
+                )
+        elif isinstance(note_result, str):
+            # 文本模式：长文本分段，每段一个 Node
+            max_chunk = 2000
+            if len(note_result) <= max_chunk:
+                nodes.append(
+                    Node(
+                        content=[Plain(f"📝 AI 视频总结\n\n{note_result}")],
+                        name=bot_name,
+                        uin=bot_uin,
+                    )
+                )
+            else:
+                chunks: list[str] = []
+                remaining = note_result
+                while remaining:
+                    if len(remaining) <= max_chunk:
+                        chunks.append(remaining)
+                        break
+                    cut = remaining.rfind("\n\n", 0, max_chunk)
+                    if cut < int(max_chunk * 0.5):
+                        cut = remaining.rfind("\n", 0, max_chunk)
+                    if cut < int(max_chunk * 0.3):
+                        cut = max_chunk
+                    chunks.append(remaining[:cut])
+                    remaining = remaining[cut:].lstrip("\n")
+
+                for i, chunk in enumerate(chunks):
+                    label = (
+                        "📝 AI 视频总结"
+                        if i == 0
+                        else f"📝 AI 视频总结（第 {i + 1} 部分）"
+                    )
+                    nodes.append(
+                        Node(
+                            content=[Plain(f"{label}\n\n{chunk}")],
+                            name=bot_name,
+                            uin=bot_uin,
+                        )
+                    )
+
+        self._log(f"[Forward] 构建合并转发: {len(nodes)} 个节点")
+        return Nodes(nodes=nodes)
 
     # ==================== B站链接自动识别 ====================
 
@@ -618,63 +874,207 @@ class BiliVideoPlugin(Star):
         if raw_msg.strip().startswith("/"):
             return
 
+        # 检测是否是引用/回复消息（第一个组件是 reply 类型）
+        is_reply_message = False
+        has_at_component = False
+        user_actual_content = ""  # 用户实际发送的内容（排除引用部分）
+        
+        try:
+            if hasattr(event, 'message_obj') and event.message_obj:
+                comps = event.message_obj.message or []
+                if comps:
+                    first_comp = comps[0]
+                    comp_type = getattr(first_comp, 'type', None)
+                    # OneBot 协议中 reply 类型表示这是引用/回复消息
+                    if comp_type == 'reply':
+                        is_reply_message = True
+                        self._log(f"[AutoDetect] 检测到引用消息")
+                    
+                    # 提取用户实际发送的内容（跳过 reply 组件）
+                    user_content_parts = []
+                    for i, comp in enumerate(comps):
+                        comp_type = getattr(comp, 'type', None)
+                        
+                        # 跳过 reply 组件（引用的内容）
+                        if comp_type == 'reply':
+                            continue
+                        
+                        # 检测艾特组件
+                        if comp_type == 'at':
+                            has_at_component = True
+                            # 艾特也算用户内容的一部分
+                            user_content_parts.append(f"@{getattr(comp, 'data', {}).get('qq', 'someone')}")
+                        
+                        # 提取文本内容
+                        elif comp_type == 'text' or hasattr(comp, 'text'):
+                            text = getattr(comp, 'text', str(comp))
+                            user_content_parts.append(text)
+                        
+                        # 其他类型组件（图片、JSON等）
+                        elif comp_type in ['image', 'json', 'face']:
+                            # JSON 组件可能包含小程序链接，保留
+                            user_content_parts.append(str(comp))
+                    
+                    user_actual_content = " ".join(user_content_parts).strip()
+                    self._log(f"[AutoDetect] 用户实际内容: '{user_actual_content}'")
+        except Exception as e:
+            self._log(f"[AutoDetect] 解析消息组件异常: {e}")
+            user_actual_content = raw_msg
+
+        # 如果是引用消息，只检查用户实际发送的内容，不检查引用的内容
+        if is_reply_message:
+            self._log(f"[AutoDetect] 这是引用消息，只检查用户实际内容")
+            
+            # 定义触发关键词列表（用户明确表达想要查看/总结视频的意图）
+            trigger_keywords = [
+                '总结', '看看', '看一下', '看下', '分析', '讲的啥', '讲什么', '说的啥', '说什么',
+                '内容', '视频', '这个', '这视频', '帮我看', '帮忙看', '解析', '翻译',
+                'summary', 'summarize', 'analyze', 'video', 'watch', 'check', 'see',
+                'bilibili', 'b23.tv', 'bv', 'www.bilibili.com', '哔哩哔哩'
+            ]
+            
+            # 检查用户实际内容中是否包含 B站链接
+            has_bili_in_user_content = any(keyword in user_actual_content.lower() for keyword in [
+                'bilibili', 'b23.tv', 'bv', 'www.bilibili.com', '哔哩哔哩'
+            ])
+            has_bv_in_user_content = bool(re.search(r'BV[0-9A-Za-z]{10}', user_actual_content))
+            has_url_in_user_content = bool(re.search(r'https?://.*bilibili', user_actual_content))
+            
+            # 检查是否包含触发关键词
+            has_trigger_keyword = any(keyword in user_actual_content.lower() for keyword in trigger_keywords)
+            
+            # 如果用户实际内容中没有B站链接，且没有触发关键词，跳过识别
+            if not has_bili_in_user_content and not has_bv_in_user_content and not has_url_in_user_content:
+                if not has_trigger_keyword:
+                    self._log(f"[AutoDetect] 引用消息中用户实际内容无B站链接且无触发关键词，跳过识别")
+                    return
+                else:
+                    self._log(f"[AutoDetect] 引用消息中检测到触发关键词: '{user_actual_content}'，尝试从引用内容提取链接")
+                    # 继续执行，从引用的消息中提取链接
+            
+            # 如果用户实际内容很短（<30字符）且没有明确的链接，检查是否有触发关键词
+            if len(user_actual_content) < 30 and not has_url_in_user_content and not has_bv_in_user_content:
+                if not has_trigger_keyword:
+                    self._log(f"[AutoDetect] 引用消息中用户内容过短且无明确链接和触发关键词，跳过识别")
+                    return
+                else:
+                    self._log(f"[AutoDetect] 引用消息中检测到触发关键词，继续处理")
+
+        # 跳过纯艾特消息（包含 @ 但没有 B站链接特征）
+        msg_stripped = user_actual_content if is_reply_message else raw_msg.strip()
+        has_bili_keywords = any(keyword in msg_stripped.lower() for keyword in [
+            'bilibili', 'b23.tv', 'bv', 'www.bilibili.com', '哔哩哔哩'
+        ])
+        
+        # 如果消息以 @ 开头，且很短（<20字符），且没有B站关键词，则跳过
+        if msg_stripped.startswith('@') and len(msg_stripped) < 20 and not has_bili_keywords:
+            self._log(f"[AutoDetect] 跳过纯艾特消息: '{msg_stripped}'")
+            return
+        
+        # 如果检测到艾特组件，且消息中没有B站链接特征，则跳过
+        if has_at_component and not has_bili_keywords:
+            # 进一步检查是否真的包含 BV 号或链接
+            has_bv = bool(re.search(r'BV[0-9A-Za-z]{10}', msg_stripped))
+            has_url = bool(re.search(r'https?://', msg_stripped))
+            if not has_bv and not has_url:
+                self._log(f"[AutoDetect] 跳过艾特消息（无B站链接）: '{msg_stripped}'")
+                return
+
         # 访问控制
         if not self._check_access(event):
             return
 
         bili_url = ""
         bvid = None
+        
+        # 判断是否需要从引用内容中提取链接
+        # 如果是引用消息且用户内容中有触发关键词，则允许从完整消息提取
+        allow_extract_from_reply = False
+        if is_reply_message:
+            # 检查用户内容中是否有触发关键词
+            trigger_keywords = [
+                '总结', '看看', '看一下', '看下', '分析', '讲的啥', '讲什么', '说的啥', '说什么',
+                '内容', '视频', '这个', '这视频', '帮我看', '帮忙看', '解析', '翻译',
+                'summary', 'summarize', 'analyze', 'video', 'watch', 'check', 'see'
+            ]
+            has_trigger = any(keyword in user_actual_content.lower() for keyword in trigger_keywords)
+            # 如果用户内容中没有直接的B站链接，但有触发关键词，则允许从引用提取
+            has_direct_link = any(keyword in user_actual_content.lower() for keyword in [
+                'bilibili', 'b23.tv', 'bv', 'www.bilibili.com'
+            ]) or bool(re.search(r'BV[0-9A-Za-z]{10}', user_actual_content))
+            
+            if has_trigger and not has_direct_link:
+                allow_extract_from_reply = True
+                self._log(f"[AutoDetect] 引用消息中检测到触发关键词且无直接链接，允许从引用内容提取")
 
         # ---- 1. 尝试从 raw_message 提取 QQ 小程序 / JSON 卡片 ----
-        try:
-            if hasattr(event, 'message_obj') and event.message_obj:
-                raw = getattr(event.message_obj, 'raw_message', None)
-                logger.info(f"[AutoDetect] raw_message type={type(raw).__name__}, truthy={bool(raw)}")
-                if raw:
-                    bili_url = self._extract_bili_url_from_raw(raw)
+        # 如果是引用消息且不允许从引用提取，则跳过 JSON 卡片提取
+        if not is_reply_message or allow_extract_from_reply:
+            try:
+                if hasattr(event, 'message_obj') and event.message_obj:
+                    raw = getattr(event.message_obj, 'raw_message', None)
+                    logger.info(f"[AutoDetect] raw_message type={type(raw).__name__}, truthy={bool(raw)}")
+                    if raw:
+                        bili_url = self._extract_bili_url_from_raw(raw)
 
-                # 遍历消息组件的 raw / data 属性
-                if not bili_url and event.message_obj.message:
-                    for comp in event.message_obj.message:
+                    # 遍历消息组件的 raw / data 属性（跳过第一个回复/引用组件）
+                    comps = event.message_obj.message or []
+                    self._log(f"[AutoDetect] 小程序检测: 组件数量={len(comps)}")
+                    for i, comp in enumerate(comps):
+                        # 跳过第一个组件（可能是回复/引用）
+                        if i == 0:
+                            comp_type = getattr(comp, 'type', None)
+                            comp_str = str(comp)
+                            if comp_type == 'reply' or (comp_type == 'json' and 'appid' in comp_str):
+                                self._log(f"[AutoDetect] 跳过第一个组件（可能是回复/引用）: type={comp_type}")
+                                continue
                         comp_raw = getattr(comp, 'raw', None) or getattr(comp, 'data', None)
                         if comp_raw:
                             bili_url = self._extract_bili_url_from_raw(comp_raw)
                             if bili_url:
                                 break
 
-                # 兜底：尝试将每个组件转为字符串后解析 JSON
-                if not bili_url and event.message_obj.message:
-                    for comp in event.message_obj.message:
-                        comp_str = str(comp)
-                        if 'bilibili' in comp_str.lower() or 'b23.tv' in comp_str.lower():
-                            logger.info(f"[AutoDetect] 尝试 str(comp) 解析, len={len(comp_str)}")
-                            # 尝试直接 JSON 解析
-                            bili_url = self._try_parse_json_for_url(comp_str)
-                            if bili_url:
-                                break
-                            # 尝试从字符串中直接用正则匹配 URL
-                            url_match = re.search(r'https?://[^\s\"\'\}\]]+bilibili\.com/video/(BV[0-9A-Za-z]{10})', comp_str)
-                            if url_match:
-                                bvid = url_match.group(1)
-                                logger.info(f"[AutoDetect] 从 str(comp) 正则匹配到 BV: {bvid}")
-                                break
-                            url_match = re.search(r'https?://b23\.tv/\S+', comp_str)
-                            if url_match:
-                                bili_url = url_match.group(0).rstrip('"}\']')
-                                logger.info(f"[AutoDetect] 从 str(comp) 匹配到短链: {bili_url}")
-                                break
-                            # qqdocurl 可能直接在字符串中
-                            qqdoc_match = re.search(r'"qqdocurl"\s*:\s*"(https?://[^"]+)"', comp_str)
-                            if qqdoc_match:
-                                bili_url = qqdoc_match.group(1)
-                                logger.info(f"[AutoDetect] 从 str(comp) 匹配到 qqdocurl: {bili_url}")
-                                break
-        except Exception as e:
-            logger.error(f"[AutoDetect] 解析消息异常: {e}", exc_info=True)
+                    # 兜底：尝试将每个组件转为字符串后解析 JSON（跳过第一个回复/引用组件）
+                    if not bili_url and event.message_obj.message:
+                        for i, comp in enumerate(comps):
+                            # 跳过第一个组件（可能是回复/引用）
+                            if i == 0:
+                                comp_type = getattr(comp, 'type', None)
+                                comp_str = str(comp)
+                                if comp_type == 'reply' or (comp_type == 'json' and 'appid' in comp_str):
+                                    continue
+                            comp_str = str(comp)
+                            if 'bilibili' in comp_str.lower() or 'b23.tv' in comp_str.lower():
+                                logger.info(f"[AutoDetect] 尝试 str(comp) 解析, len={len(comp_str)}")
+                                # 尝试直接 JSON 解析
+                                bili_url = self._try_parse_json_for_url(comp_str)
+                                if bili_url:
+                                    break
+                                # 尝试从字符串中直接用正则匹配 URL
+                                url_match = re.search(r'https?://[^\s\"\'\}\]]+bilibili\.com/video/(BV[0-9A-Za-z]{10})', comp_str)
+                                if url_match:
+                                    bvid = url_match.group(1)
+                                    logger.info(f"[AutoDetect] 从 str(comp) 正则匹配到 BV: {bvid}")
+                                    break
+                                url_match = re.search(r'https?://b23\.tv/\S+', comp_str)
+                                if url_match:
+                                    bili_url = url_match.group(0).rstrip('"}\']')
+                                    logger.info(f"[AutoDetect] 从 str(comp) 匹配到短链: {bili_url}")
+                                    break
+                                # qqdocurl 可能直接在字符串中
+                                qqdoc_match = re.search(r'"qqdocurl"\s*:\s*"(https?://[^"]+)"', comp_str)
+                                if qqdoc_match:
+                                    bili_url = qqdoc_match.group(1)
+                                    logger.info(f"[AutoDetect] 从 str(comp) 匹配到 qqdocurl: {bili_url}")
+                                    break
+            except Exception as e:
+                logger.error(f"[AutoDetect] 解析消息异常: {e}", exc_info=True)
 
-        # ---- 2. message_str 可能本身就是 JSON ----
-        if not bili_url and not bvid and raw_msg.strip().startswith("{"):
-            bili_url = self._try_parse_json_for_url(raw_msg.strip())
+            # ---- 2. message_str 可能本身就是 JSON ----
+            if not bili_url and not bvid and raw_msg.strip().startswith("{"):
+                bili_url = self._try_parse_json_for_url(raw_msg.strip())
+        else:
+            self._log(f"[AutoDetect] 引用消息且无触发关键词，跳过 JSON 卡片提取")
 
         logger.info(f"[AutoDetect] 提取结果: bili_url={bili_url!r}, bvid={bvid}")
 
@@ -688,23 +1088,46 @@ class BiliVideoPlugin(Star):
                 resolved = await resolve_short_url(bili_url)
                 if resolved:
                     self._log(f"[AutoDetect] 短链解析结果: {resolved}")
-                    bv_match = re.search(r'(BV[0-9A-Za-z]{10})', resolved)
+                    bv_match = re.search(r'(BV[0-9A-Za-z]{10}', resolved)
                     if bv_match:
                         bvid = bv_match.group(1)
 
         # ---- 4. 从纯文本中提取 ----
+        # 如果是引用消息且允许从引用提取，使用完整消息；否则只用用户实际内容
         if not bvid:
-            all_text = raw_msg
+            if is_reply_message and allow_extract_from_reply:
+                # 允许从引用内容提取，使用完整消息
+                all_text = raw_msg
+                self._log(f"[AutoDetect] 引用消息且有触发关键词，从完整消息提取: '{all_text}'")
+            elif is_reply_message:
+                # 不允许从引用提取，只用用户实际内容
+                all_text = user_actual_content
+                self._log(f"[AutoDetect] 引用消息，只从用户实际内容提取: '{all_text}'")
+            else:
+                # 非引用消息，使用完整消息
+                all_text = raw_msg
+            
             try:
-                if hasattr(event, 'message_obj') and event.message_obj:
+                if hasattr(event, 'message_obj') and event.message_obj and not is_reply_message:
                     parts = []
-                    for comp in (event.message_obj.message or []):
+                    comps = event.message_obj.message or []
+                    self._log(f"[AutoDetect] 消息组件数量: {len(comps)}")
+                    # 跳过第一个 reply 组件
+                    for i, comp in enumerate(comps):
+                        # 检测是否是回复/引用组件
+                        comp_type = getattr(comp, 'type', None)
+                        comp_str = str(comp)
+                        # OneBot 的回复类型是 'reply'，QQ小程序也可能是 'json' 且包含引用
+                        if comp_type == 'reply' or (comp_type == 'json' and 'appid' in comp_str and i == 0):
+                            self._log(f"[AutoDetect] 跳过回复/引用组件 [{i}]: type={comp_type}")
+                            continue
                         if hasattr(comp, 'text'):
                             parts.append(comp.text)
                         elif isinstance(comp, str):
                             parts.append(comp)
                     if parts:
                         all_text = " ".join(parts)
+                        self._log(f"[AutoDetect] 过滤后的文本: {all_text}")
             except Exception:
                 pass
 
@@ -799,7 +1222,13 @@ class BiliVideoPlugin(Star):
                 try:
                     note = await self._generate_note(video_url)
                     result = self._render_and_get_chain(note)
-                    if isinstance(result, list):
+
+                    # 合并转发模式
+                    if self.config.get("enable_forward_message", False) and info:
+                        self._log("[AutoDetect] 使用合并转发模式发送总结")
+                        forward_nodes = self._build_forward_nodes(info, result)
+                        yield event.chain_result([forward_nodes])
+                    elif isinstance(result, list):
                         yield event.chain_result(result)
                     else:
                         yield event.plain_result(result)
@@ -1171,9 +1600,33 @@ class BiliVideoPlugin(Star):
         note = await self._generate_note(video_url)
         self._log(f"[总结命令] 总结生成完成, 长度={len(note) if note else 0}")
 
-        # 发送总结（图片或文本）
+        # 渲染总结（图片或文本）
         result = self._render_and_get_chain(note)
         self._log(f"[总结命令] 输出模式: {'图片' if isinstance(result, list) else '文本'}")
+
+        # 合并转发模式
+        if self.config.get("enable_forward_message", False):
+            self._log("[总结命令] 使用合并转发模式发送")
+            # 提取 BV 号以获取视频信息
+            bv_match = re.search(r'(BV[0-9A-Za-z]{10})', video_url)
+            video_info = None
+            if bv_match:
+                try:
+                    video_info = await get_video_info(
+                        bv_match.group(1), cookies=self.bili_cookies
+                    )
+                except Exception as e:
+                    self._log(f"[总结命令] 获取视频信息失败: {e}")
+
+            if video_info:
+                forward_nodes = self._build_forward_nodes(video_info, result)
+                self._log("═══════ [总结命令] 结束(合并转发) ═══════")
+                yield event.chain_result([forward_nodes])
+                return
+            else:
+                self._log("[总结命令] 视频信息获取失败, 回退到普通模式")
+
+        # 普通模式发送
         self._log("═══════ [总结命令] 结束(成功) ═══════")
         if isinstance(result, list):
             yield event.chain_result(result)
@@ -1222,6 +1675,21 @@ class BiliVideoPlugin(Star):
 
         note = await self._generate_note(video_url)
         result = self._render_and_get_chain(note)
+
+        # 合并转发模式
+        if self.config.get("enable_forward_message", False):
+            try:
+                video_info = await get_video_info(
+                    video["bvid"], cookies=self.bili_cookies
+                )
+            except Exception:
+                video_info = None
+
+            if video_info:
+                forward_nodes = self._build_forward_nodes(video_info, result)
+                yield event.chain_result([forward_nodes])
+                return
+
         if isinstance(result, list):
             yield event.chain_result(result)
         else:
@@ -1694,13 +2162,42 @@ class BiliVideoPlugin(Star):
         # 生成总结
         note = await self._generate_note(video_url)
 
-        # 推送消息
-        push_header = f"🔔 UP主【{up['name']}】发布了新视频!\n"
+        # 渲染总结
         result = self._render_and_get_chain(note)
-        if isinstance(result, list):
-            chain_components = [Plain(push_header)] + result
+
+        # 合并转发模式
+        if self.config.get("enable_forward_message", False):
+            try:
+                video_info = await get_video_info(
+                    latest_bvid, cookies=self.bili_cookies
+                )
+            except Exception:
+                video_info = None
+
+            if video_info:
+                forward_nodes = self._build_forward_nodes(video_info, result)
+                push_header_node = Node(
+                    content=[Plain(f"🔔 UP主【{up['name']}】发布了新视频!")],
+                    name="BiliVideo 助手",
+                    uin="0",
+                )
+                # 在转发消息头部插入推送提醒
+                forward_nodes.nodes.insert(0, push_header_node)
+                chain_components = [forward_nodes]
+            else:
+                # 回退到普通模式
+                push_header = f"🔔 UP主【{up['name']}】发布了新视频!\n"
+                if isinstance(result, list):
+                    chain_components = [Plain(push_header)] + result
+                else:
+                    chain_components = [Plain(push_header + "━━━━━━━━━━━━━━━━━━━\n\n" + result)]
         else:
-            chain_components = [Plain(push_header + "━━━━━━━━━━━━━━━━━━━\n\n" + result)]
+            # 普通推送模式
+            push_header = f"🔔 UP主【{up['name']}】发布了新视频!\n"
+            if isinstance(result, list):
+                chain_components = [Plain(push_header)] + result
+            else:
+                chain_components = [Plain(push_header + "━━━━━━━━━━━━━━━━━━━\n\n" + result)]
 
         # 获取推送目标：优先使用配置的推送目标，否则推到订阅来源
         push_origins = self.subscription_mgr.get_push_origins()

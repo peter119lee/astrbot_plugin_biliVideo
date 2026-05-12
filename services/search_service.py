@@ -115,13 +115,15 @@ class SearchService:
         video_info: dict,
         folder_path: str,
         quality: str = "fast",
+        prefer_subtitle: bool = True,
     ) -> VideoTranscriptResult:
         """
-        处理单个视频：下载 → 获取字幕/转写 → 保存文件
+        处理单个视频：优先获取字幕，无字幕时下载音频转写
 
         :param video_info: 视频信息字典
         :param folder_path: 保存文件夹路径
         :param quality: 音频下载质量
+        :param prefer_subtitle: 是否优先使用字幕
         :return: 转写结果
         """
         bvid = video_info.get("bvid", "")
@@ -144,23 +146,57 @@ class SearchService:
         try:
             logger.info(f"[SearchService] 开始处理视频: {title} ({bvid})")
 
-            audio_meta = await asyncio.get_running_loop().run_in_executor(
-                None,
-                lambda: self.downloader.download(url, quality=quality)
-            )
-            logger.info(f"[SearchService] 音频下载完成: {audio_meta.title}")
-
-            transcript = await asyncio.get_running_loop().run_in_executor(
-                None,
-                lambda: self.downloader.download_subtitles(url)
-            )
-
+            transcript = None
+            
+            # 如果启用优先字幕，先尝试获取字幕
+            if prefer_subtitle:
+                logger.info(f"[SearchService] 尝试获取字幕: {bvid}")
+                try:
+                    transcript = await asyncio.get_running_loop().run_in_executor(
+                        None,
+                        lambda: self.downloader.download_subtitles(url)
+                    )
+                    
+                    if transcript and transcript.segments:
+                        logger.info(f"[SearchService] ✅ 成功获取字幕（跳过音频下载）: {title}")
+                    else:
+                        logger.info(f"[SearchService] 无字幕，将下载音频转写: {bvid}")
+                        transcript = None
+                except Exception as e:
+                    logger.warning(f"[SearchService] 获取字幕失败: {e}")
+                    transcript = None
+            
+            # 如果没有字幕，下载音频并转写
             if not transcript or not transcript.segments:
-                logger.info(f"[SearchService] 无平台字幕，使用必剪转写: {bvid}")
-                transcript = await asyncio.get_running_loop().run_in_executor(
+                logger.info(f"[SearchService] 下载音频并转写: {bvid}")
+                audio_meta = await asyncio.get_running_loop().run_in_executor(
                     None,
-                    lambda: self.transcriber.transcript(audio_meta.file_path)
+                    lambda: self.downloader.download(url, quality=quality)
                 )
+                logger.info(f"[SearchService] 音频下载完成: {audio_meta.title}")
+
+                # 如果之前没有尝试过获取字幕，这里再尝试一次
+                if not prefer_subtitle:
+                    transcript = await asyncio.get_running_loop().run_in_executor(
+                        None,
+                        lambda: self.downloader.download_subtitles(url)
+                    )
+
+                # 如果还是没有字幕，使用必剪转写
+                if not transcript or not transcript.segments:
+                    logger.info(f"[SearchService] 使用必剪转写: {bvid}")
+                    transcript = await asyncio.get_running_loop().run_in_executor(
+                        None,
+                        lambda: self.transcriber.transcript(audio_meta.file_path)
+                    )
+                
+                # 清理音频文件
+                try:
+                    if audio_meta and hasattr(audio_meta, 'file_path') and os.path.exists(audio_meta.file_path):
+                        os.remove(audio_meta.file_path)
+                        logger.info(f"[SearchService] 已清理音频文件: {audio_meta.file_path}")
+                except Exception as e:
+                    logger.warning(f"[SearchService] 清理音频文件失败: {e}")
 
             if not transcript or not transcript.segments:
                 result.error = "无法获取字幕或转写内容"
@@ -181,12 +217,6 @@ class SearchService:
 
             logger.info(f"[SearchService] 已保存转写文件: {file_path}")
 
-            try:
-                if audio_meta and hasattr(audio_meta, 'file_path') and os.path.exists(audio_meta.file_path):
-                    os.remove(audio_meta.file_path)
-            except Exception:
-                pass
-
             return result
 
         except Exception as e:
@@ -201,6 +231,7 @@ class SearchService:
         keyword: str,
         quality: str = "fast",
         max_concurrent: int = 1,
+        prefer_subtitle: bool = True,
     ) -> BatchTranscriptResult:
         """
         批量处理视频
@@ -209,6 +240,7 @@ class SearchService:
         :param keyword: 搜索关键词
         :param quality: 音频下载质量
         :param max_concurrent: 最大并发数
+        :param prefer_subtitle: 是否优先使用字幕
         :return: 批量转写结果
         """
         task_id, folder_path = self.create_task_folder(keyword)
@@ -225,7 +257,7 @@ class SearchService:
 
         async def process_with_semaphore(video_info: dict) -> VideoTranscriptResult:
             async with semaphore:
-                return await self.process_single_video(video_info, folder_path, quality)
+                return await self.process_single_video(video_info, folder_path, quality, prefer_subtitle)
 
         tasks = [process_with_semaphore(v) for v in videos]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -259,6 +291,7 @@ class SearchService:
         max_concurrent: int = 1,
         cookies: Optional[dict] = None,
         progress_callback=None,
+        prefer_subtitle: bool = True,
     ) -> BatchTranscriptResult:
         """
         根据 BV 号列表批量处理视频
@@ -269,6 +302,7 @@ class SearchService:
         :param max_concurrent: 最大并发数
         :param cookies: B站 cookies
         :param progress_callback: 进度回调函数，参数为 dict
+        :param prefer_subtitle: 是否优先使用字幕
         :return: 批量转写结果
         """
         from ..services.bilibili_api import get_video_info
@@ -291,14 +325,15 @@ class SearchService:
                     videos_info.append({
                         "bvid": bvid,
                         "title": video_info.get("title", ""),
-                        "author": video_info.get("owner", {}).get("name", ""),
-                        "play": video_info.get("stat", {}).get("view", 0),
-                        "danmaku": video_info.get("stat", {}).get("danmaku", 0),
-                        "like": video_info.get("stat", {}).get("like", 0),
+                        "author": video_info.get("owner_name", ""),
+                        "play": video_info.get("view", 0),
+                        "danmaku": video_info.get("danmaku", 0),
+                        "like": video_info.get("like", 0),
                         "duration": self._format_duration(video_info.get("duration", 0)),
                         "pubdate": video_info.get("pubdate", 0),
                         "description": video_info.get("desc", ""),
                         "url": f"https://www.bilibili.com/video/{bvid}",
+                        "pic": video_info.get("pic", ""),  # 添加封面图
                     })
                 else:
                     logger.warning(f"[SearchService] 无法获取视频信息: {bvid}")
@@ -313,6 +348,7 @@ class SearchService:
                         "pubdate": 0,
                         "description": "",
                         "url": f"https://www.bilibili.com/video/{bvid}",
+                        "pic": "",
                     })
             except Exception as e:
                 logger.error(f"[SearchService] 获取视频信息失败 {bvid}: {e}")
@@ -327,6 +363,7 @@ class SearchService:
                     "pubdate": 0,
                     "description": "",
                     "url": f"https://www.bilibili.com/video/{bvid}",
+                    "pic": "",
                 })
 
         semaphore = asyncio.Semaphore(max_concurrent)
@@ -336,7 +373,7 @@ class SearchService:
         async def process_with_callback(video_info: dict) -> VideoTranscriptResult:
             nonlocal completed_count
             async with semaphore:
-                video_result = await self.process_single_video(video_info, folder_path, quality)
+                video_result = await self.process_single_video(video_info, folder_path, quality, prefer_subtitle)
                 
                 async with lock:
                     completed_count += 1

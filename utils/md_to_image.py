@@ -307,6 +307,177 @@ def _extract_title(html: str) -> tuple:
     return 'AI 视频总结', html
 
 
+def _split_markdown_by_chapters(markdown_text: str, max_cards: int = 6) -> List[str]:
+    """
+    按 h2 标题拆分 Markdown，每部分不超过 max_cards 个章节
+
+    :param markdown_text: 完整的 Markdown 文本
+    :param max_cards: 每张图片最多包含的章节数
+    :return: 拆分后的 Markdown 页面列表
+    """
+    lines = markdown_text.split('\n')
+
+    # 1. 提取标题（第一个 h1）
+    title = "AI 视频总结"
+    intro_lines = []
+    chapter_blocks = []
+    current_chapter = []
+    i = 0
+
+    # 跳过空行
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+
+    # 提取 h1 标题
+    if i < len(lines) and lines[i].startswith('# '):
+        title = lines[i][2:].strip()
+        i += 1
+
+    # 提取引言（第一个 h2 之前的内容）
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith('## '):
+            break
+        intro_lines.append(line)
+        i += 1
+
+    intro = '\n'.join(intro_lines).strip()
+
+    # 提取所有章节
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith('## '):
+            if current_chapter:
+                chapter_blocks.append('\n'.join(current_chapter))
+            current_chapter = [line]
+        else:
+            current_chapter.append(line)
+        i += 1
+
+    if current_chapter:
+        chapter_blocks.append('\n'.join(current_chapter))
+
+    # 2. 分组章节
+    pages = []
+
+    if not chapter_blocks:
+        # 没有章节，整个内容作为一页
+        pages.append(f"# {title}\n\n{intro}")
+        return pages
+
+    # 第一页：标题 + 引言 + 前 N 个章节
+    first_page_chapters = min(max_cards, len(chapter_blocks))
+    first_page = f"# {title}\n\n{intro}\n\n" + '\n\n'.join(chapter_blocks[:first_page_chapters])
+    pages.append(first_page)
+
+    # 后续页：续页标题 + 后续章节
+    remaining = chapter_blocks[first_page_chapters:]
+    while remaining:
+        page_chapters = remaining[:max_cards]
+        remaining = remaining[max_cards:]
+        page_content = f"# {title}（续）\n\n" + '\n\n'.join(page_chapters)
+        pages.append(page_content)
+
+    return pages
+
+
+def render_note_images(
+    markdown_text: str,
+    output_dir: str,
+    base_filename: str,
+    max_cards_per_image: int = 6,
+    width: int = 1400,
+) -> List[str]:
+    """
+    将长总结拆分为多张图片渲染
+
+    :param markdown_text: 完整 Markdown 文本
+    :param output_dir: 输出目录
+    :param base_filename: 基础文件名（不含扩展名）
+    :param max_cards_per_image: 每张图片最多包含的卡片数
+    :param width: 图片宽度
+    :return: 生成的图片路径列表
+    """
+    try:
+        import markdown as md
+        import imgkit
+    except ImportError as e:
+        logger.error(f"缺少依赖: {e}. 请安装: pip install markdown imgkit")
+        return []
+
+    try:
+        import time as _time
+        from datetime import datetime
+        render_start = _time.time()
+
+        # 1. 按章节拆分 Markdown
+        markdown_pages = _split_markdown_by_chapters(markdown_text, max_cards_per_image)
+        total_pages = len(markdown_pages)
+        logger.info(f"长总结已拆分为 {total_pages} 页")
+
+        if total_pages == 1:
+            # 只有一页，使用单图渲染
+            output_path = os.path.join(output_dir, f"{base_filename}.png")
+            result = render_note_image(markdown_text, output_path, width)
+            return [result] if result else []
+
+        # 2. 渲染每一页
+        os.makedirs(output_dir, exist_ok=True)
+        logo_uri = _get_logo_base64()
+        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        generated_paths = []
+
+        for page_idx, page_md in enumerate(markdown_pages, 1):
+            # Markdown 转 HTML
+            html_body = md.markdown(
+                page_md,
+                extensions=['tables', 'fenced_code', 'nl2br'],
+            )
+            html_body = _highlight_timestamps(html_body)
+
+            # 提取标题（如果是续页，显示页码）
+            title_text, html_body = _extract_title(html_body)
+            if page_idx > 1:
+                title_text = f"{title_text}（第 {page_idx}/{total_pages} 页）"
+
+            # 将 h2 章节包裹为卡片
+            html_body = _wrap_sections_in_cards(html_body)
+
+            # Footer 显示页码
+            footer_time = f"{now_str} | 第 {page_idx}/{total_pages} 页"
+
+            # 构建完整 HTML
+            full_html = _build_full_html(html_body, logo_uri, title_text, footer_time)
+
+            options = {
+                'format': 'png',
+                'width': str(width),
+                'encoding': 'UTF-8',
+                'quality': '94',
+                'enable-local-file-access': '',
+                'no-stop-slow-scripts': '',
+                'disable-smart-width': '',
+            }
+
+            output_path = os.path.join(output_dir, f"{base_filename}_p{page_idx}.png")
+            imgkit.from_string(full_html, output_path, options=options)
+
+            if os.path.exists(output_path):
+                generated_paths.append(output_path)
+                file_size = os.path.getsize(output_path)
+                logger.info(f"图片 {page_idx}/{total_pages} 已生成: {output_path} ({file_size} bytes)")
+            else:
+                logger.error(f"图片 {page_idx} 渲染失败: imgkit 未生成文件")
+
+        render_secs = round(_time.time() - render_start, 1)
+        logger.info(f"全部 {len(generated_paths)} 张图片渲染完成，耗时 {render_secs}s")
+        return generated_paths
+
+    except Exception as e:
+        logger.error(f"多图渲染失败: {e}", exc_info=True)
+        return []
+
+
 def render_note_image(
     markdown_text: str,
     output_path: str,

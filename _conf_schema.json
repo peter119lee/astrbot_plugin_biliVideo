@@ -161,6 +161,26 @@
     "max": 10000,
     "hint": "总结最大字符数，超过将自动截断（防止消息过长发送失败）"
   },
+  "enable_auto_split": {
+    "description": "长视频自动分图",
+    "type": "bool",
+    "default": true,
+    "hint": "视频内容过长时，自动将总结拆分为多张图片输出，避免内容被截断"
+  },
+  "max_cards_per_image": {
+    "description": "每张图最多卡片数",
+    "type": "int",
+    "default": 6,
+    "min": 2,
+    "max": 12,
+    "hint": "每张总结图片最多包含多少个章节卡片，建议6-8个以保证图片大小适中"
+  },
+  "enable_forward_message": {
+    "description": "总结以合并转发发送",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后，视频信息和AI总结将打包为合并转发（聊天记录）形式发送，包含封面、视频信息和完整总结"
+  },
   "enable_auto_push": {
     "description": "启用自动推送",
     "type": "bool",
@@ -210,5 +230,17 @@
     "min": 1,
     "max": 5,
     "hint": "同时进行下载和转写的视频数量，数量越大服务器压力越大"
+  },
+  "search_show_progress": {
+    "description": "搜索下载显示进度",
+    "type": "bool",
+    "default": true,
+    "hint": "AI搜索下载视频时，是否显示实时进度消息（如：进度 1/3）"
+  },
+  "prefer_subtitle": {
+    "description": "优先使用字幕",
+    "type": "bool",
+    "default": true,
+    "hint": "视频有字幕时优先获取字幕内容进行总结，没有字幕再下载音频转写（可节省时间和资源）"
   }
 }

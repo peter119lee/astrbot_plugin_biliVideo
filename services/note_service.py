@@ -162,9 +162,7 @@ class NoteService:
                 )
 
             # 标题已由 LLM 在 h1 中输出，无需额外添加
-
-            # 8. 清理音频文件
-            self._cleanup(audio_meta.file_path)
+            # 音频文件清理统一在 finally 块中处理（避免 audio_meta 为 None 时报错）
 
             return markdown
 
@@ -205,7 +203,7 @@ class NoteService:
     def _cleanup(self, file_path: str):
         """清理临时音频文件"""
         try:
-            if os.path.exists(file_path):
+            if file_path and os.path.exists(file_path):
                 os.remove(file_path)
                 logger.info(f"已清理临时文件: {file_path}")
         except Exception as e:

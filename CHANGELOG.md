@@ -1,5 +1,12 @@
 # 更新日志
 
+## v1.0.4b (2026-05-14)
+
+### 修复
+
+- 🐛 **修复字幕路径下总结后崩溃** - `note_service.py` 在仅使用平台字幕、未下载音频的流程中，结尾仍调用 `self._cleanup(audio_meta.file_path)`，`audio_meta` 为 `None` 时抛出 `AttributeError: 'NoneType' object has no attribute 'file_path'`，导致总结生成失败提示
+- 🛡️ **增强清理函数健壮性** - `_cleanup` 增加 `file_path` 空值判断，避免传入 `None` 或空字符串时再次报错
+
 ## v1.0.4 (2026-05-13)
 
 ### 修复

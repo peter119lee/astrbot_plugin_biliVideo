@@ -110,7 +110,6 @@ class NoteService:
                 title = audio_meta.title
             else:
                 # 如果只有字幕没有音频元数据，尝试从URL获取标题
-                from ..utils.url_parser import extract_video_id
                 video_id = extract_video_id(video_url, "bilibili")
                 if video_id:
                     try:

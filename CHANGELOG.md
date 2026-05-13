@@ -1,5 +1,12 @@
 # 更新日志
 
+## v1.0.4 (2026-05-13)
+
+### 修复
+
+- 🐛 **修复无字幕视频总结崩溃** - 走 bcut 转写流程时，`note_service.py` 中局部 import 导致 `extract_video_id` 未绑定（UnboundLocalError），现已移除多余的局部导入
+- 🐛 **修复短链接解析异常** - `main.py` 中解析 b23.tv 短链后匹配 BV 号的正则缺少右括号，导致 `unterminated subpattern` 错误
+
 ## v1.0.3 (2026-05-12)
 
 ### 修复

@@ -1088,7 +1088,7 @@ class BiliVideoPlugin(Star):
                 resolved = await resolve_short_url(bili_url)
                 if resolved:
                     self._log(f"[AutoDetect] 短链解析结果: {resolved}")
-                    bv_match = re.search(r'(BV[0-9A-Za-z]{10}', resolved)
+                    bv_match = re.search(r'(BV[0-9A-Za-z]{10})', resolved)
                     if bv_match:
                         bvid = bv_match.group(1)
 

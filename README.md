@@ -378,7 +378,8 @@ AI 会自动组合使用两个工具：
 | `enable_link` | `true` | 嵌入时间戳标记 |
 | `enable_summary` | `true` | 末尾添加 AI 总结段落 |
 | `download_quality` | `fast` | 音频质量：`fast` / `medium` / `slow` |
-| `enable_auto_push` | `false` | 启用自动推送新视频总结 |
+| `enable_auto_push` | `false` | 启用自动推送新视频信息 |
+| `auto_push_summary` | `true` | 推送新视频信息时否附带总结；关闭后仅发送视频基本信息 |
 | `check_interval_minutes` | `600` | 定时检查间隔（分钟） |
 | `max_subscriptions` | `20` | 每个群最大订阅数 |
 | `max_note_length` | `3000` | 总结最大字符数 |
@@ -699,6 +700,7 @@ AI automatically continues processing when transcription is done. Transcripts sa
 | `output_image` | `true` | Send summary as image |
 | `note_style` | `professional` | Style: `concise` / `detailed` / `professional` |
 | `enable_auto_push` | `false` | Enable automatic new video push |
+| `auto_push_summary` | `true` | Generate summary on auto push; disable to send basic info only |
 | `check_interval_minutes` | `600` | Check interval in minutes |
 | `max_subscriptions` | `20` | Max subscriptions per group |
 | `download_quality` | `fast` | Audio quality: `fast` / `medium` / `slow` |

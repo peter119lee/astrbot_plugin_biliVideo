@@ -869,8 +869,33 @@ class BiliVideoPlugin(Star):
         if not self.enable_miniapp_detect:
             return
 
+        # 1. 获取底层最原始的消息（包含真实的 CQ 码）和纯文本消息
+        raw_msg_str = ""
+        if hasattr(event, 'message_obj') and event.message_obj:
+            raw_msg_str = str(getattr(event.message_obj, 'raw_message', ''))
+        text_msg = event.message_str or ""
+
+        # === 核心拦截：引用/回复消息一律不参与自动识别 ===
+        # 拦截点 A: 检查底层 OneBot 协议是否携带 CQ 码的 reply 或显式 [引用消息] 文本
+        if "[CQ:reply" in raw_msg_str or "[CQ:reply" in text_msg or "[引用消息]" in text_msg:
+            self._log("[AutoDetect] 拦截: 消息中包含引用标识")
+            return
+
+        # 拦截点 B: 遍历框架解析后的消息组件，任何回复/引用组件直接放弃
+        if hasattr(event, 'message_obj') and event.message_obj and event.message_obj.message:
+            for comp in event.message_obj.message:
+                comp_type_name = type(comp).__name__.lower()
+                comp_type_attr = (getattr(comp, 'type', '') or '').lower()
+                if (
+                    "reply" in comp_type_name
+                    or "quote" in comp_type_name
+                    or comp_type_attr in ("reply", "quote")
+                ):
+                    self._log("[AutoDetect] 拦截: 包含引用组件对象")
+                    return
+
         # 跳过命令消息
-        raw_msg = event.message_str or ""
+        raw_msg = text_msg
         if raw_msg.strip().startswith("/"):
             return
 

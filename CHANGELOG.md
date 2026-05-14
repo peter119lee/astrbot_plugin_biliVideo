@@ -1,18 +1,27 @@
 # 更新日志
 
+## v1.0.5a (2026-05-14)
+
+### 新增
+
+- ✨ **自动推送可选附带总结** - 新增 `auto_push_summary` 配置项（默认 `true`）。开启时定时检查触发的推送会进行 AI 总结；关闭后仅发送视频基本信息（标题、封面、简介、链接等），不消耗 LLM 额度
+- 📝 `enable_auto_push` 文案微调，更准确地描述为"自动推送新视频信息"
+
+> 致谢：feature 来自社区贡献者 [@Jeric-X](https://github.com/Jeric-X) 的 PR [#18](https://github.com/storyAura/astrbot_plugin_biliVideo/pull/18)
+
 ## v1.0.4b (2026-05-14)
 
 ### 修复
 
-- 🐛 **修复字幕路径下总结后崩溃** - `note_service.py` 在仅使用平台字幕、未下载音频的流程中，结尾仍调用 `self._cleanup(audio_meta.file_path)`，`audio_meta` 为 `None` 时抛出 `AttributeError: 'NoneType' object has no attribute 'file_path'`，导致总结生成失败提示
-- 🛡️ **增强清理函数健壮性** - `_cleanup` 增加 `file_path` 空值判断，避免传入 `None` 或空字符串时再次报错
+-  **修复字幕路径下总结后崩溃** - `note_service.py` 在仅使用平台字幕、未下载音频的流程中，结尾仍调用 `self._cleanup(audio_meta.file_path)`，`audio_meta` 为 `None` 时抛出 `AttributeError: 'NoneType' object has no attribute 'file_path'`，导致总结生成失败提示
+-  **增强清理函数健壮性** - `_cleanup` 增加 `file_path` 空值判断，避免传入 `None` 或空字符串时再次报错
 
 ## v1.0.4 (2026-05-13)
 
 ### 修复
 
-- 🐛 **修复无字幕视频总结崩溃** - 走 bcut 转写流程时，`note_service.py` 中局部 import 导致 `extract_video_id` 未绑定（UnboundLocalError），现已移除多余的局部导入
-- 🐛 **修复短链接解析异常** - `main.py` 中解析 b23.tv 短链后匹配 BV 号的正则缺少右括号，导致 `unterminated subpattern` 错误
+-  **修复无字幕视频总结崩溃** - 走 bcut 转写流程时，`note_service.py` 中局部 import 导致 `extract_video_id` 未绑定（UnboundLocalError），现已移除多余的局部导入
+-  **修复短链接解析异常** - `main.py` 中解析 b23.tv 短链后匹配 BV 号的正则缺少右括号，导致 `unterminated subpattern` 错误
 
 ## v1.0.3 (2026-05-12)
 

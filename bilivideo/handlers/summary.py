@@ -1,0 +1,152 @@
+"""`/总结` and `/最新视频` handlers."""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+
+from ..access.control import is_allowed
+from ..api.endpoints import get_latest_videos, search_uploader_by_name
+from ..core.exceptions import BiliVideoError
+from ..parsing.url_extractor import (
+    detect_platform,
+    extract_bvid,
+    extract_long_url,
+    extract_short_url,
+    extract_uid,
+)
+from ..services import BiliVideoServices
+from ._render_helper import render_note_components
+from ._send_helper import yield_note_response
+
+
+async def handle_summary(services: BiliVideoServices, event: object) -> AsyncIterator[object]:
+    origin = getattr(event, "unified_msg_origin", "")
+    if not is_allowed(origin, config=services.config):
+        yield event.plain_result("⛔ 你没有权限使用此插件")  # type: ignore[attr-defined]
+        return
+
+    cooldown_key = f"sum:{getattr(event, 'get_sender_id', lambda: '')()}"
+    remaining = services.cooldown.remaining(cooldown_key)
+    if remaining > 0:
+        yield event.plain_result(f"⏳ 操作太频繁,请等 {remaining} 秒后再试")  # type: ignore[attr-defined]
+        return
+
+    raw_msg = getattr(event, "message_str", "") or ""
+    video_url = _extract_video_url(raw_msg, event)
+    if not video_url:
+        yield event.plain_result(  # type: ignore[attr-defined]
+            "❌ 请提供视频链接\n用法: /总结 <B站视频链接>\n"
+            "示例: /总结 https://www.bilibili.com/video/BV1xx..."
+        )
+        return
+
+    if detect_platform(video_url) != "bilibili":
+        yield event.plain_result("❌ 目前仅支持B站视频链接")  # type: ignore[attr-defined]
+        return
+
+    yield event.plain_result("⏳ 正在生成总结,请稍候(可能需要 1-3 分钟)...")  # type: ignore[attr-defined]
+    services.cooldown.punch(cooldown_key)
+
+    try:
+        note = await services.orchestrator.generate(video_url)
+    except BiliVideoError as exc:
+        yield event.plain_result(exc.user_message)  # type: ignore[attr-defined]
+        return
+
+    components = render_note_components(services, note.markdown)
+    async for resp in yield_note_response(services, event, components, video_info=note.video_info):
+        yield resp
+
+
+async def handle_latest_video(services: BiliVideoServices, event: object) -> AsyncIterator[object]:
+    if not is_allowed(getattr(event, "unified_msg_origin", ""), config=services.config):
+        yield event.plain_result("⛔ 你没有权限使用此插件")  # type: ignore[attr-defined]
+        return
+
+    args = _parse_args(getattr(event, "message_str", "") or "")
+    if not args:
+        yield event.plain_result(  # type: ignore[attr-defined]
+            "❌ 请提供UP主UID、空间链接或昵称\n用法: /最新视频 <UP主UID或昵称>"
+        )
+        return
+
+    mid = extract_uid(args)
+    if not mid:
+        yield event.plain_result(f"🔍 正在搜索UP主: {args}...")  # type: ignore[attr-defined]
+        uploader = await search_uploader_by_name(services.http_client, args)
+        if uploader is None:
+            yield event.plain_result(  # type: ignore[attr-defined]
+                "❌ 无法识别UP主\n支持: 纯数字UID、空间链接、或UP主昵称"
+            )
+            return
+        mid = uploader.mid
+        yield event.plain_result(f"✅ 找到UP主【{uploader.name}】(UID:{mid})")  # type: ignore[attr-defined]
+
+    yield event.plain_result(f"⏳ 正在获取UP主 (UID:{mid}) 的最新视频...")  # type: ignore[attr-defined]
+
+    videos = await get_latest_videos(services.http_client, mid, count=1)
+    if not videos:
+        yield event.plain_result("❌ 未找到该UP主的视频")  # type: ignore[attr-defined]
+        return
+
+    video = videos[0]
+    yield event.plain_result(  # type: ignore[attr-defined]
+        f"📺 找到最新视频: {video.title}\n⏳ 正在生成总结..."
+    )
+
+    try:
+        note = await services.orchestrator.generate(
+            f"https://www.bilibili.com/video/{video.bvid}"
+        )
+    except BiliVideoError as exc:
+        yield event.plain_result(exc.user_message)  # type: ignore[attr-defined]
+        return
+
+    components = render_note_components(services, note.markdown)
+    async for resp in yield_note_response(services, event, components, video_info=note.video_info):
+        yield resp
+
+
+# ──────────────────────────── helpers ──────────────────────────────
+
+
+def _parse_args(message: str) -> str:
+    if not message:
+        return ""
+    parts = message.strip().split(maxsplit=1)
+    return parts[1].strip() if len(parts) > 1 else ""
+
+
+def _extract_video_url(raw_msg: str, event: object) -> str:
+    full_text = raw_msg
+    message_obj = getattr(event, "message_obj", None)
+    if message_obj is not None:
+        chain = getattr(message_obj, "message", None) or []
+        plain_pieces: list[str] = []
+        for comp in chain:
+            text = getattr(comp, "text", None)
+            if isinstance(text, str):
+                plain_pieces.append(text)
+            elif isinstance(comp, str):
+                plain_pieces.append(comp)
+        if plain_pieces:
+            full_text = " ".join(plain_pieces)
+
+    args = _parse_args(raw_msg)
+    if args:
+        first = args.split()[0]
+        if "bilibili.com" in first or "b23.tv" in first:
+            return first
+
+    long_url = extract_long_url(raw_msg) or extract_long_url(full_text)
+    if long_url:
+        return long_url.rstrip(">")
+
+    short_url = extract_short_url(raw_msg) or extract_short_url(full_text)
+    if short_url:
+        return short_url
+
+    bvid = extract_bvid(raw_msg) or extract_bvid(full_text)
+    if bvid:
+        return f"https://www.bilibili.com/video/{bvid}"
+    return ""

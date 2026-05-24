@@ -1,0 +1,97 @@
+"""Push-target command handlers."""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+
+from ..access.control import is_allowed
+from ..services import BiliVideoServices
+
+
+def _parse_args(message: str) -> str:
+    if not message:
+        return ""
+    parts = message.strip().split(maxsplit=1)
+    return parts[1].strip() if len(parts) > 1 else ""
+
+
+def _platform_prefix(origin: str) -> str:
+    return origin.split(":", 1)[0] if origin else ""
+
+
+async def handle_add_push_group(
+    services: BiliVideoServices, event: object
+) -> AsyncIterator[object]:
+    if not is_allowed(getattr(event, "unified_msg_origin", ""), config=services.config):
+        yield event.plain_result("⛔ 你没有权限使用此插件")  # type: ignore[attr-defined]
+        return
+
+    args = _parse_args(getattr(event, "message_str", "") or "")
+    if not args or not args.isdigit():
+        yield event.plain_result("❌ 请提供QQ群号\n用法: /添加推送群 <群号>")  # type: ignore[attr-defined]
+        return
+
+    origin = getattr(event, "unified_msg_origin", "")
+    target_origin = f"{_platform_prefix(origin)}:GroupMessage:{args}"
+    added = await services.subscription_manager.add_push_target(target_origin, f"群{args}")
+    msg = f"✅ 已添加推送目标: 群 {args}" if added else f"⚠️ 群 {args} 已在推送列表中"
+    yield event.plain_result(msg)  # type: ignore[attr-defined]
+
+
+async def handle_add_push_user(
+    services: BiliVideoServices, event: object
+) -> AsyncIterator[object]:
+    if not is_allowed(getattr(event, "unified_msg_origin", ""), config=services.config):
+        yield event.plain_result("⛔ 你没有权限使用此插件")  # type: ignore[attr-defined]
+        return
+
+    args = _parse_args(getattr(event, "message_str", "") or "")
+    if not args or not args.isdigit():
+        yield event.plain_result("❌ 请提供QQ号\n用法: /添加推送号 <QQ号>")  # type: ignore[attr-defined]
+        return
+
+    origin = getattr(event, "unified_msg_origin", "")
+    target_origin = f"{_platform_prefix(origin)}:FriendMessage:{args}"
+    added = await services.subscription_manager.add_push_target(target_origin, f"QQ{args}")
+    msg = f"✅ 已添加推送目标: QQ {args}" if added else f"⚠️ QQ {args} 已在推送列表中"
+    yield event.plain_result(msg)  # type: ignore[attr-defined]
+
+
+async def handle_list_push(
+    services: BiliVideoServices, event: object
+) -> AsyncIterator[object]:
+    targets = await services.subscription_manager.get_push_targets()
+    if not targets:
+        yield event.plain_result(  # type: ignore[attr-defined]
+            "📋 当前没有配置推送目标\n"
+            "使用 /添加推送群 <群号> 或 /添加推送号 <QQ号> 添加\n"
+            "⚠️ 未配置推送目标时,总结将推送到发起订阅的群"
+        )
+        return
+
+    lines = ["📋 当前推送目标:", "━━━━━━━━━━━━━━━━━━━"]
+    for i, t in enumerate(targets, start=1):
+        lines.append(f"  {i}. {t.label}")
+    lines.append(f"\n共 {len(targets)} 个推送目标")
+    yield event.plain_result("\n".join(lines))  # type: ignore[attr-defined]
+
+
+async def handle_remove_push(
+    services: BiliVideoServices, event: object
+) -> AsyncIterator[object]:
+    if not is_allowed(getattr(event, "unified_msg_origin", ""), config=services.config):
+        yield event.plain_result("⛔ 你没有权限使用此插件")  # type: ignore[attr-defined]
+        return
+
+    args = _parse_args(getattr(event, "message_str", "") or "")
+    if not args:
+        yield event.plain_result("❌ 请提供要移除的群号或QQ号\n用法: /移除推送 <群号或QQ号>")  # type: ignore[attr-defined]
+        return
+
+    removed = (
+        await services.subscription_manager.remove_push_target(f"群{args}")
+        or await services.subscription_manager.remove_push_target(f"QQ{args}")
+        or await services.subscription_manager.remove_push_target(args)
+    )
+    msg = f"✅ 已移除推送目标: {args}" if removed else f"⚠️ 未找到该推送目标: {args}"
+    yield event.plain_result(msg)  # type: ignore[attr-defined]

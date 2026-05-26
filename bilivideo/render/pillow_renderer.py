@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..core.exceptions import RenderError
+from ..core.exceptions import PartialRenderError, RenderError
 from ..core.logging import get_logger
 from .pagination import split_by_chapters
 from .theme import card_color_for
@@ -142,12 +142,13 @@ class PillowRenderer:
         max_cards_per_image: int = 6,
         enable_split: bool = True,
     ) -> list[Path]:
-        chapter_count = markdown_text.count("\n## ")
+        chapter_count = sum(1 for line in markdown_text.splitlines() if line.startswith("## "))
         if not enable_split or chapter_count <= max_cards_per_image:
             return self._render_one(markdown_text, base_filename, page_label=None, total=1)
 
         pages = split_by_chapters(markdown_text, max_cards=max_cards_per_image)
         outputs: list[Path] = []
+        failed_pages: list[int] = []
         total = len(pages)
         for idx, page in enumerate(pages, start=1):
             label = None if total == 1 else f"({idx}/{total})"
@@ -156,7 +157,18 @@ class PillowRenderer:
                     self._render_one(page, f"{base_filename}_p{idx}", page_label=label, total=total)
                 )
             except RenderError as exc:
-                logger.warning(f"page {idx}/{total} pillow render failed: {exc}")
+                logger.warning(
+                    f"page {idx}/{total} pillow render failed: {exc}; "
+                    f"page_chars={len(page)} chapters={page.count(chr(10) + '## ')}"
+                )
+                failed_pages.append(idx)
+        if failed_pages and outputs:
+            raise PartialRenderError(
+                f"partial pillow render failed; failed_pages={failed_pages}, "
+                f"succeeded_pages={[p.name for p in outputs]}",
+                generated_paths=outputs,
+                failed_pages=failed_pages,
+            )
         if not outputs:
             raise RenderError("all pages failed to render with Pillow")
         return outputs
@@ -228,6 +240,10 @@ class PillowRenderer:
                     card_h += text_height(f_body, lines) + 4
             total_h += card_h + self.CARD_GAP
         total_h += 50  # footer
+        logger.debug(
+            f"pillow page layout: chars={len(markdown_text)} cards={len(cards_with_lines)} "
+            f"height={total_h} width={self._width} font={font_path}"
+        )
 
         # actually paint
         img = Image.new("RGB", (self._width, total_h), self.BG)

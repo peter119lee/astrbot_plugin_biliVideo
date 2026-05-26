@@ -108,9 +108,17 @@ class SearchService:
 
         async def _process(bvid: str) -> None:
             nonlocal completed
-            async with semaphore:
-                video_result = await self._process_one(
-                    bvid, folder_path, prefer_subtitle, quality, subtitle_langs
+            try:
+                async with semaphore:
+                    video_result = await self._process_one(
+                        bvid, folder_path, prefer_subtitle, quality, subtitle_langs
+                    )
+            except Exception as exc:
+                logger.warning(f"unexpected search processing failure for {bvid}: {exc}", exc_info=True)
+                video_result = VideoTranscriptResult(
+                    bvid=bvid,
+                    success=False,
+                    error=f"unexpected failure: {exc}",
                 )
 
             async with lock:

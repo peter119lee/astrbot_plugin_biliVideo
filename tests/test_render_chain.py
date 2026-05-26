@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from bilivideo.core.exceptions import RenderError
+from bilivideo.core.exceptions import PartialRenderError, RenderError
 from bilivideo.render.chain import RenderChain
 
 
@@ -56,6 +56,109 @@ def test_chain_raises_when_all_fail(tmp_path) -> None:
         assert "all image backends failed" in str(exc)
     else:
         raise AssertionError("expected RenderError")
+
+
+def test_chain_tries_next_backend_after_partial_render(tmp_path) -> None:
+    chain = RenderChain(output_dir=str(tmp_path), image_width=800)
+    partial_path = Path(tmp_path) / "partial_p2.png"
+    partial_path.write_bytes(b"fake")
+
+    class _Partial:
+        def render(self, *args, **kwargs):
+            raise PartialRenderError(
+                "page 1 failed",
+                generated_paths=[partial_path],
+                failed_pages=[1],
+            )
+
+    class _Working:
+        def render(self, *args, **kwargs):
+            out = Path(tmp_path) / f"{kwargs['base_filename']}.png"
+            out.write_bytes(b"ok")
+            return [out]
+
+    chain._backends = [("first", _Partial()), ("second", _Working())]
+    out = chain.render(
+        "# test\n\n## 章节\n内容",
+        base_filename="t",
+        max_cards_per_image=6,
+        enable_split=True,
+    )
+
+    assert out == [Path(tmp_path) / "t.png"]
+
+
+def test_chain_keeps_partial_paths_when_no_complete_backend(tmp_path) -> None:
+    chain = RenderChain(output_dir=str(tmp_path), image_width=800)
+    partial_path = Path(tmp_path) / "partial_p2.png"
+    partial_path.write_bytes(b"fake")
+
+    class _Partial:
+        def render(self, *args, **kwargs):
+            raise PartialRenderError(
+                "page 1 failed",
+                generated_paths=[partial_path],
+                failed_pages=[1],
+            )
+
+    class _Failing:
+        def render(self, *args, **kwargs):
+            raise RenderError("dead")
+
+    chain._backends = [("first", _Partial()), ("second", _Failing())]
+
+    try:
+        chain.render(
+            "# test\n\n## 章节\n内容",
+            base_filename="t",
+            max_cards_per_image=6,
+            enable_split=True,
+        )
+    except PartialRenderError as exc:
+        assert exc.generated_paths == [partial_path]
+        assert exc.failed_pages == [1]
+    else:
+        raise AssertionError("expected PartialRenderError")
+
+
+def test_chain_keeps_best_partial_when_multiple_backends_partial(tmp_path) -> None:
+    chain = RenderChain(output_dir=str(tmp_path), image_width=800)
+    path_a = Path(tmp_path) / "a_p2.png"
+    path_b = Path(tmp_path) / "a_p3.png"
+    path_c = Path(tmp_path) / "b_p2.png"
+    for path in (path_a, path_b, path_c):
+        path.write_bytes(b"fake")
+
+    class _BetterPartial:
+        def render(self, *args, **kwargs):
+            raise PartialRenderError(
+                "one page failed",
+                generated_paths=[path_a, path_b],
+                failed_pages=[1],
+            )
+
+    class _WorsePartial:
+        def render(self, *args, **kwargs):
+            raise PartialRenderError(
+                "two pages failed",
+                generated_paths=[path_c],
+                failed_pages=[1, 3],
+            )
+
+    chain._backends = [("better", _BetterPartial()), ("worse", _WorsePartial())]
+
+    try:
+        chain.render(
+            "# test\n\n## 章节\n内容",
+            base_filename="t",
+            max_cards_per_image=6,
+            enable_split=True,
+        )
+    except PartialRenderError as exc:
+        assert exc.generated_paths == [path_a, path_b]
+        assert exc.failed_pages == [1]
+    else:
+        raise AssertionError("expected PartialRenderError")
 
 
 def test_chain_skips_unavailable_wkhtmltopdf(tmp_path) -> None:

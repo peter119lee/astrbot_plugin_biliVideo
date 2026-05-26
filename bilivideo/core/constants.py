@@ -59,7 +59,10 @@ UID_REGEX: Final[re.Pattern[str]] = re.compile(r"space\.bilibili\.com/(\d+)")
 LONG_URL_REGEX: Final[re.Pattern[str]] = re.compile(
     r"https?://(?:www\.)?bilibili\.com/video/[A-Za-z0-9/?=&_.\-]+"
 )
-SHORT_URL_REGEX: Final[re.Pattern[str]] = re.compile(r"https?://b23\.tv/\S+")
+SHORT_URL_REGEX: Final[re.Pattern[str]] = re.compile(
+    r"https?://(?:b23\.tv|bili2233\.cn|bili22\.cn|bili23\.cn|bili33\.cn)/\S+",
+    re.IGNORECASE,
+)
 QQDOC_URL_REGEX: Final[re.Pattern[str]] = re.compile(r'"qqdocurl"\s*:\s*"(https?://[^"]+)"')
 TIMESTAMP_REGEX: Final[re.Pattern[str]] = re.compile(
     r"(?:\*?)Content-(?:\[(\d{2}):(\d{2})\]|(\d{2}):(\d{2}))"

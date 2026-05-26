@@ -9,6 +9,7 @@ from bilivideo.parsing.url_extractor import (
     extract_short_url,
     extract_uid,
     is_bilibili_domain,
+    is_short_bili_url,
     parse_json_card,
 )
 
@@ -60,11 +61,24 @@ class TestExtractShortUrl:
     def test_strips_punct(self) -> None:
         assert extract_short_url('https://b23.tv/abc"') == "https://b23.tv/abc"
 
+    def test_strips_chinese_punctuation_from_short_url(self) -> None:
+        assert extract_short_url("https://b23.tv/abc，") == "https://b23.tv/abc"
+        assert extract_short_url("<https://b23.tv/abc。>") == "https://b23.tv/abc"
+        assert extract_short_url("https://b23.tv/abc）") == "https://b23.tv/abc"
+        assert extract_short_url("https://b23.tv/abc!") == "https://b23.tv/abc"
+
+    def test_supports_other_bili_short_domains(self) -> None:
+        assert extract_short_url("https://bili2233.cn/abc，") == "https://bili2233.cn/abc"
+        assert extract_short_url("https://bili22.cn/abc") == "https://bili22.cn/abc"
+        assert is_short_bili_url("https://bili23.cn/abc")
+        assert is_short_bili_url("https://bili33.cn/abc")
+
 
 class TestDetectPlatform:
     def test_bilibili(self) -> None:
         assert detect_platform("https://www.bilibili.com/video/BV1") == "bilibili"
         assert detect_platform("https://b23.tv/xxx") == "bilibili"
+        assert detect_platform("https://bili2233.cn/xxx") == "bilibili"
 
     def test_youtube(self) -> None:
         assert detect_platform("https://youtu.be/xxx") == "youtube"

@@ -17,7 +17,7 @@ import shutil
 from pathlib import Path
 from typing import Protocol
 
-from ..core.exceptions import RenderError
+from ..core.exceptions import PartialRenderError, RenderError
 from ..core.logging import get_logger
 from .pillow_renderer import PillowRenderer
 from .wkhtml_renderer import WkHtmlRenderer
@@ -73,14 +73,26 @@ class RenderChain:
         enable_split: bool = True,
     ) -> list[Path]:
         last_error: Exception | None = None
+        partial: PartialRenderError | None = None
         for name, backend in self._backends:
             try:
-                return backend.render(
+                paths = backend.render(
                     markdown_text,
                     base_filename=base_filename,
                     max_cards_per_image=max_cards_per_image,
                     enable_split=enable_split,
                 )
+                logger.debug(f"renderer '{name}' produced {len(paths)} images")
+                return paths
+            except PartialRenderError as exc:
+                logger.warning(
+                    f"renderer '{name}' partially failed: {exc}; keeping successful pages "
+                    "and trying next backend for a complete render"
+                )
+                if partial is None or len(exc.generated_paths) > len(partial.generated_paths):
+                    partial = exc
+                last_error = exc
+                continue
             except RenderError as exc:
                 logger.warning(f"renderer '{name}' failed: {exc}; trying next backend")
                 last_error = exc
@@ -89,6 +101,8 @@ class RenderChain:
                 logger.warning(f"renderer '{name}' raised unexpectedly: {exc}; trying next backend")
                 last_error = exc
                 continue
+        if partial is not None and partial.generated_paths:
+            raise partial
         raise RenderError(
             f"all image backends failed; last error: {last_error}" if last_error else "no backends available"
         )

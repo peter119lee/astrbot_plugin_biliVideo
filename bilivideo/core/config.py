@@ -106,6 +106,7 @@ class PluginConfig:
     enable_forward_message: bool = False
     forward_bot_name: str = "BiliVideo 助手"
     forward_bot_uin: str = "0"
+    platform_prefix: str = "aiocqhttp"
 
     # auto detect --------------------------------------------------------
     enable_miniapp_detect: bool = False
@@ -171,6 +172,7 @@ class PluginConfig:
             enable_forward_message=_coerce_bool(raw.get("enable_forward_message"), False),
             forward_bot_name=_coerce_str(raw.get("forward_bot_name"), "BiliVideo 助手"),
             forward_bot_uin=_coerce_str(raw.get("forward_bot_uin"), "0"),
+            platform_prefix=_coerce_str(raw.get("platform_prefix"), "aiocqhttp"),
             enable_miniapp_detect=_coerce_bool(raw.get("enable_miniapp_detect"), False),
             detect_show_cover=_coerce_bool(raw.get("detect_show_cover"), True),
             detect_show_uploader=_coerce_bool(raw.get("detect_show_uploader"), True),

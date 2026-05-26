@@ -220,15 +220,28 @@ async def _process_bv_list(
         except Exception as exc:
             logger.warning(f"progress dispatch failed: {exc}")
 
-    result = await services.search_service.process_bv_list(
-        bv_list=bv_list,
-        folder_name=folder_name,
-        max_concurrent=services.config.search_max_concurrent,
-        prefer_subtitle=services.config.prefer_subtitle,
-        quality=services.config.download_quality,
-        subtitle_langs=services.config.subtitle_langs,
-        progress_callback=progress_callback,
-    )
+    try:
+        result = await services.search_service.process_bv_list(
+            bv_list=bv_list,
+            folder_name=folder_name,
+            max_concurrent=services.config.search_max_concurrent,
+            prefer_subtitle=services.config.prefer_subtitle,
+            quality=services.config.download_quality,
+            subtitle_langs=services.config.subtitle_langs,
+            progress_callback=progress_callback,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.error(f"search download task failed: {exc}", exc_info=True)
+        await _safe_send_text(
+            astrbot_context,
+            umo,
+            "❌ B站视频下载转写任务失败\n"
+            f"📂 文件夹: {folder_name}\n"
+            f"原因: {exc}",
+        )
+        return
 
     successful = [v for v in result.videos if v.success and v.transcript]
     if successful:
@@ -251,10 +264,17 @@ async def _process_bv_list(
         f"❌ 失败: {result.failed_count} 个\n"
         f"📁 文件位置: {result.folder_path}"
     )
+    await _safe_send_text(astrbot_context, umo, completion)
+
+
+async def _safe_send_text(astrbot_context: object, umo: str, text: str) -> None:
+    if MessageChain is None:
+        logger.warning(f"cannot send message, MessageChain unavailable: {text}")
+        return
     try:
-        await astrbot_context.send_message(umo, MessageChain().message(completion))  # type: ignore[attr-defined]
+        await astrbot_context.send_message(umo, MessageChain().message(text))  # type: ignore[attr-defined]
     except Exception as exc:
-        logger.warning(f"completion dispatch failed: {exc}")
+        logger.warning(f"message dispatch failed: {exc}")
 
 
 async def _send_combined_summary(

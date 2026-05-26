@@ -21,6 +21,16 @@ class LLMProvider(Protocol):
         ...
 
 
+class DisabledLLMProvider:
+    """Provider placeholder used when startup should continue without LLM."""
+
+    def __init__(self, user_message: str) -> None:
+        self.user_message = user_message
+
+    async def chat(self, prompt: str, *, session_id: str | None = None) -> str:
+        raise LLMError("LLM provider disabled", user_message=self.user_message)
+
+
 def build_provider(config: PluginConfig, *, astrbot_context: object | None) -> LLMProvider:
     """Return a concrete provider instance based on the config."""
 
@@ -28,7 +38,9 @@ def build_provider(config: PluginConfig, *, astrbot_context: object | None) -> L
         from .openai_provider import OpenAICompatibleProvider
 
         if not config.has_llm_credentials():
-            raise LLMError("OpenAI compatible mode requires llm_api_base and llm_api_key")
+            return DisabledLLMProvider(
+                "❌ AI 未配置:请填写 llm_api_base 和 llm_api_key,或切回 AstrBot 内置 LLM"
+            )
         return OpenAICompatibleProvider(
             api_base=config.llm_api_base,
             api_key=config.llm_api_key,

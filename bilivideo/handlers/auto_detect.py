@@ -31,6 +31,7 @@ from ..parsing.url_extractor import (
     extract_bvid,
     extract_long_url,
     extract_short_url,
+    is_short_bili_url,
 )
 from ..services import BiliVideoServices
 from ._render_helper import render_note_components
@@ -131,7 +132,7 @@ async def _resolve_bvid(
         bvid = extract_bvid(bili_url)
         if bvid:
             return bvid
-        if "b23.tv" in bili_url or "bili" in bili_url.lower():
+        if is_short_bili_url(bili_url) or "bili" in bili_url.lower():
             resolved = await services.http_client.follow_redirect(bili_url)
             if resolved:
                 bvid = extract_bvid(resolved)

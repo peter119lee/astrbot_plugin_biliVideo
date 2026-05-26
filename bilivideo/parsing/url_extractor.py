@@ -21,6 +21,9 @@ from ..core.constants import (
     UID_REGEX,
 )
 
+_TRAILING_URL_CHARS = "\"'`}>]),，。)、）！!？?；;：:"
+SHORT_URL_DOMAINS = ("b23.tv", "bili2233.cn", "bili22.cn", "bili23.cn", "bili33.cn")
+
 # ──────────────────────────── basic ────────────────────────────────
 
 
@@ -33,7 +36,7 @@ def detect_platform(url: str) -> str | None:
     if not url:
         return None
     lower = url.lower()
-    if "bilibili.com" in lower or "b23.tv" in lower:
+    if "bilibili.com" in lower or any(domain in lower for domain in SHORT_URL_DOMAINS):
         return "bilibili"
     if "youtube.com" in lower or "youtu.be" in lower:
         return "youtube"
@@ -74,7 +77,7 @@ def extract_long_url(text: str) -> str | None:
     if not text:
         return None
     match = LONG_URL_REGEX.search(text)
-    return match.group(0) if match else None
+    return _clean_url_token(match.group(0)) if match else None
 
 
 def extract_short_url(text: str) -> str | None:
@@ -83,8 +86,22 @@ def extract_short_url(text: str) -> str | None:
     match = SHORT_URL_REGEX.search(text)
     if match is None:
         return None
-    # Strip trailing JSON/quote/space artifacts that often appear in cards
-    return match.group(0).rstrip('"}\']')
+    return _clean_url_token(match.group(0))
+
+
+def _clean_url_token(url: str) -> str:
+    """Strip chat punctuation commonly attached to pasted URLs."""
+
+    return (url or "").strip().strip("<>").rstrip(_TRAILING_URL_CHARS)
+
+
+def is_short_bili_url(url: str) -> bool:
+    try:
+        host = urllib.parse.urlparse(_clean_url_token(url)).hostname or ""
+    except ValueError:
+        return False
+    host = host.lower().rstrip(".")
+    return host in SHORT_URL_DOMAINS
 
 
 # ──────────────────────────── JSON cards ───────────────────────────

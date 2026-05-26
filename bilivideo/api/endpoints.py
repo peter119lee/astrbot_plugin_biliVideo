@@ -20,7 +20,7 @@ from ..core.constants import (
     VIDEO_INFO_CACHE_MAX,
     VIDEO_INFO_CACHE_TTL_SECONDS,
 )
-from ..core.exceptions import BilibiliAPIError
+from ..core.exceptions import BilibiliAPIError, BiliVideoError
 from ..core.logging import get_logger
 from ..core.types import (
     LatestVideo,
@@ -87,6 +87,9 @@ async def get_video_info(client: BilibiliHTTPClient, bvid: str) -> VideoInfo:
 
 async def get_uploader_info(client: BilibiliHTTPClient, mid: str) -> UploaderInfo | None:
     signed = await sign_params({"mid": mid}, cookies=client.cookies)
+    if "w_rid" not in signed:
+        logger.warning(f"get_uploader_info({mid}) skipped: WBI signing unavailable")
+        return None
     try:
         payload = await client.request_json("GET", ENDPOINT_USER_INFO, params=signed)
     except BilibiliAPIError as exc:
@@ -106,6 +109,9 @@ async def get_latest_videos(
 ) -> list[LatestVideo]:
     params = {"mid": mid, "ps": count, "pn": 1, "order": "pubdate"}
     signed = await sign_params(params, cookies=client.cookies)
+    if "w_rid" not in signed:
+        logger.warning(f"get_latest_videos({mid}) skipped: WBI signing unavailable")
+        return []
     try:
         payload = await client.request_json("GET", ENDPOINT_USER_VIDEOS, params=signed)
     except BilibiliAPIError as exc:
@@ -141,14 +147,18 @@ async def search_uploader_by_name(
     }
     signed = await sign_params(params, cookies=client.cookies)
 
-    for endpoint, qparams in (
-        (ENDPOINT_SEARCH_TYPE_WBI, signed),
-        (ENDPOINT_SEARCH_TYPE, params),  # legacy fallback
-    ):
+    endpoint_candidates = (
+        ((ENDPOINT_SEARCH_TYPE_WBI, signed), (ENDPOINT_SEARCH_TYPE, params))
+        if "w_rid" in signed
+        else ((ENDPOINT_SEARCH_TYPE, params),)
+    )
+
+    for endpoint, qparams in endpoint_candidates:
         try:
+            logger.debug(f"search_uploader keyword={keyword} endpoint={endpoint}")
             payload = await client.request_json("GET", endpoint, params=qparams)
-        except BilibiliAPIError as exc:
-            logger.warning(f"search_uploader_by_name endpoint={endpoint} failed: {exc}")
+        except BiliVideoError as exc:
+            logger.warning(f"search_uploader_by_name endpoint={endpoint} failed: {exc}; fallback")
             continue
 
         results = ((payload.get("data") or {}).get("result") or [])
@@ -187,10 +197,28 @@ async def search_videos(
         "duration": duration,
         "tids": tids,
     }
-    try:
-        payload = await client.request_json("GET", ENDPOINT_SEARCH_TYPE, params=params)
-    except BilibiliAPIError as exc:
-        logger.warning(f"search_videos({keyword}) failed: {exc}")
+    signed = await sign_params(params, cookies=client.cookies)
+
+    payload: dict[str, object] | None = None
+    endpoint_candidates = (
+        ((ENDPOINT_SEARCH_TYPE_WBI, signed), (ENDPOINT_SEARCH_TYPE, params))
+        if "w_rid" in signed
+        else ((ENDPOINT_SEARCH_TYPE, params),)
+    )
+    for endpoint, qparams in endpoint_candidates:
+        try:
+            logger.debug(f"search_videos keyword={keyword} endpoint={endpoint} page={page}")
+            candidate = await client.request_json("GET", endpoint, params=qparams)
+        except BiliVideoError as exc:
+            logger.warning(f"search_videos endpoint={endpoint} failed: {exc}; fallback")
+            continue
+        raw = ((candidate.get("data") or {}).get("result") or [])
+        if raw:
+            payload = candidate
+            break
+        logger.debug(f"search_videos endpoint={endpoint} returned empty result; fallback")
+        payload = candidate
+    if payload is None:
         return None
 
     data = payload.get("data") or {}

@@ -7,16 +7,20 @@ from collections.abc import AsyncIterator
 from ..access.control import is_allowed
 from ..api.endpoints import get_latest_videos, search_uploader_by_name
 from ..core.exceptions import BiliVideoError
+from ..core.logging import get_logger
 from ..parsing.url_extractor import (
     detect_platform,
     extract_bvid,
     extract_long_url,
     extract_short_url,
     extract_uid,
+    is_short_bili_url,
 )
 from ..services import BiliVideoServices
 from ._render_helper import render_note_components
 from ._send_helper import yield_note_response
+
+logger = get_logger("BiliVideo/SummaryHandler")
 
 
 async def handle_summary(services: BiliVideoServices, event: object) -> AsyncIterator[object]:
@@ -42,6 +46,11 @@ async def handle_summary(services: BiliVideoServices, event: object) -> AsyncIte
 
     if detect_platform(video_url) != "bilibili":
         yield event.plain_result("❌ 目前仅支持B站视频链接")  # type: ignore[attr-defined]
+        return
+
+    video_url = await _canonicalize_video_url(services, video_url)
+    if not video_url:
+        yield event.plain_result("❌ 短链解析失败,请检查链接是否有效或直接发送 BV 号")  # type: ignore[attr-defined]
         return
 
     yield event.plain_result("⏳ 正在生成总结,请稍候(可能需要 1-3 分钟)...")  # type: ignore[attr-defined]
@@ -135,8 +144,15 @@ def _extract_video_url(raw_msg: str, event: object) -> str:
     args = _parse_args(raw_msg)
     if args:
         first = args.split()[0]
-        if "bilibili.com" in first or "b23.tv" in first:
-            return first
+        bvid = extract_bvid(first)
+        if bvid:
+            return f"https://www.bilibili.com/video/{bvid}"
+        long_url = extract_long_url(first)
+        if long_url:
+            return long_url
+        short_url = extract_short_url(first)
+        if short_url:
+            return short_url
 
     long_url = extract_long_url(raw_msg) or extract_long_url(full_text)
     if long_url:
@@ -150,3 +166,22 @@ def _extract_video_url(raw_msg: str, event: object) -> str:
     if bvid:
         return f"https://www.bilibili.com/video/{bvid}"
     return ""
+
+
+async def _canonicalize_video_url(services: BiliVideoServices, video_url: str) -> str:
+    bvid = extract_bvid(video_url)
+    if bvid:
+        return f"https://www.bilibili.com/video/{bvid}"
+    if not is_short_bili_url(video_url):
+        return video_url
+    logger.debug(f"resolving manual summary short url={video_url}")
+    resolved = await services.http_client.follow_redirect(video_url)
+    if not resolved:
+        logger.warning(f"short url resolve failed: {video_url}")
+        return ""
+    bvid = extract_bvid(resolved)
+    if not bvid:
+        logger.warning(f"short url resolved without bvid: {resolved}")
+        return ""
+    logger.debug(f"resolved b23 short url to bvid={bvid}")
+    return f"https://www.bilibili.com/video/{bvid}"

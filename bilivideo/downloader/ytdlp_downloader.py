@@ -47,6 +47,13 @@ class YtDlpDownloader:
     # ------------------------------------------------------------------
     def update_cookies(self, cookies: Mapping[str, str] | None) -> None:
         if not cookies:
+            path = self._data_dir / "cookies.txt"
+            if path.exists():
+                try:
+                    path.unlink()
+                    logger.debug(f"downloader_cookiefile_removed path={path}")
+                except OSError as exc:
+                    logger.warning(f"cookies.txt removal failed: {exc}")
             self._cookies_file = None
             return
         path = self._data_dir / "cookies.txt"
@@ -57,6 +64,7 @@ class YtDlpDownloader:
         try:
             path.write_text("\n".join(lines) + "\n", encoding="utf-8")
             os.chmod(path, 0o600)
+            logger.debug(f"downloader_cookiefile_written path={path} keys={list(cookies.keys())}")
         except OSError as exc:
             logger.warning(f"cookies.txt write failed: {exc}")
             self._cookies_file = None

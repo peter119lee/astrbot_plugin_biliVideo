@@ -61,6 +61,7 @@ class CookieJar:
         self._cookies = {}
         try:
             if self._path.exists():
+                self._atomic_write({})
                 self._path.unlink()
         except OSError as exc:
             logger.warning(f"Cookie file removal failed: {exc}")

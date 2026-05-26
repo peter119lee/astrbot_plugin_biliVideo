@@ -15,8 +15,9 @@ def _parse_args(message: str) -> str:
     return parts[1].strip() if len(parts) > 1 else ""
 
 
-def _platform_prefix(origin: str) -> str:
-    return origin.split(":", 1)[0] if origin else ""
+def _platform_prefix(services: BiliVideoServices, origin: str) -> str:
+    prefix = origin.split(":", 1)[0].strip() if ":" in origin else ""
+    return prefix or services.config.platform_prefix
 
 
 async def handle_add_push_group(
@@ -32,7 +33,11 @@ async def handle_add_push_group(
         return
 
     origin = getattr(event, "unified_msg_origin", "")
-    target_origin = f"{_platform_prefix(origin)}:GroupMessage:{args}"
+    prefix = _platform_prefix(services, origin)
+    if not prefix:
+        yield event.plain_result("❌ 无法识别当前平台,请先配置 platform_prefix")  # type: ignore[attr-defined]
+        return
+    target_origin = f"{prefix}:GroupMessage:{args}"
     added = await services.subscription_manager.add_push_target(target_origin, f"群{args}")
     msg = f"✅ 已添加推送目标: 群 {args}" if added else f"⚠️ 群 {args} 已在推送列表中"
     yield event.plain_result(msg)  # type: ignore[attr-defined]
@@ -51,7 +56,11 @@ async def handle_add_push_user(
         return
 
     origin = getattr(event, "unified_msg_origin", "")
-    target_origin = f"{_platform_prefix(origin)}:FriendMessage:{args}"
+    prefix = _platform_prefix(services, origin)
+    if not prefix:
+        yield event.plain_result("❌ 无法识别当前平台,请先配置 platform_prefix")  # type: ignore[attr-defined]
+        return
+    target_origin = f"{prefix}:FriendMessage:{args}"
     added = await services.subscription_manager.add_push_target(target_origin, f"QQ{args}")
     msg = f"✅ 已添加推送目标: QQ {args}" if added else f"⚠️ QQ {args} 已在推送列表中"
     yield event.plain_result(msg)  # type: ignore[attr-defined]

@@ -71,11 +71,11 @@ class BiliVideoPlugin(Star):
     async def _seed_push_targets(self, config: PluginConfig) -> None:
         for gid in config.push_groups:
             await self._services.subscription_manager.add_push_target(
-                f"aiocqhttp:GroupMessage:{gid}", f"群{gid}"
+                f"{config.platform_prefix}:GroupMessage:{gid}", f"群{gid}"
             )
         for uid in config.push_users:
             await self._services.subscription_manager.add_push_target(
-                f"aiocqhttp:FriendMessage:{uid}", f"QQ{uid}"
+                f"{config.platform_prefix}:FriendMessage:{uid}", f"QQ{uid}"
             )
 
     # ──────────────────────── command bindings ────────────────────────

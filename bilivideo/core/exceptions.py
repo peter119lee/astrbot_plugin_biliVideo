@@ -7,6 +7,8 @@ so handlers can surface a friendly description without parsing strings.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 
 class BiliVideoError(Exception):
     """Base class for all plugin-specific errors.
@@ -88,10 +90,10 @@ class TranscriptionError(BiliVideoError):
 class LLMError(BiliVideoError):
     """LLM 调用失败。"""
 
-    def __init__(self, message: str) -> None:
+    def __init__(self, message: str, *, user_message: str | None = None) -> None:
         super().__init__(
             message,
-            user_message="❌ AI 服务暂时不可用,请稍后重试",
+            user_message=user_message or "❌ AI 服务暂时不可用,请稍后重试",
         )
 
 
@@ -100,6 +102,21 @@ class RenderError(BiliVideoError):
 
     def __init__(self, message: str) -> None:
         super().__init__(message, user_message="❌ 图片渲染失败,已回退为纯文本")
+
+
+class PartialRenderError(RenderError):
+    """Some pages rendered, but at least one page failed."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        generated_paths: list[Path] | None = None,
+        failed_pages: list[int] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.generated_paths = generated_paths or []
+        self.failed_pages = failed_pages or []
 
 
 class CooldownError(BiliVideoError):

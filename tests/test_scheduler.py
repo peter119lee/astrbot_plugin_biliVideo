@@ -19,8 +19,9 @@ async def test_trigger_once_invokes_callback_for_each_sub(tmp_path) -> None:
 
     seen: list[tuple[str, str]] = []
 
-    async def cb(origin: str, sub: Subscription) -> None:
+    async def cb(origin: str, sub: Subscription) -> int:
         seen.append((origin, sub.mid))
+        return 1 if sub.mid == "u2" else 0
 
     sched = CheckScheduler(
         mgr,
@@ -30,7 +31,7 @@ async def test_trigger_once_invokes_callback_for_each_sub(tmp_path) -> None:
         per_request_pause=0,
     )
     triggered = await sched.trigger_once()
-    assert triggered == 3
+    assert triggered == 1
     assert {(o, m) for o, m in seen} == {("o1", "u1"), ("o1", "u2"), ("o2", "u3")}
 
 
@@ -42,10 +43,11 @@ async def test_callback_error_does_not_stop_scheduler(tmp_path) -> None:
 
     invocations: list[str] = []
 
-    async def cb(origin: str, sub: Subscription) -> None:
+    async def cb(origin: str, sub: Subscription) -> int:
         invocations.append(sub.mid)
         if sub.mid == "u1":
             raise RuntimeError("boom")
+        return 1
 
     sched = CheckScheduler(
         mgr,
@@ -54,9 +56,10 @@ async def test_callback_error_does_not_stop_scheduler(tmp_path) -> None:
         startup_delay=0,
         per_request_pause=0,
     )
-    await sched.trigger_once()
+    pushed = await sched.trigger_once()
     # Both UPs were attempted even though u1 raised
     assert invocations == ["u1", "u2"]
+    assert pushed == 1
 
 
 @pytest.mark.asyncio

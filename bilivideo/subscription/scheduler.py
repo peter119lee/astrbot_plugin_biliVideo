@@ -18,7 +18,7 @@ from .manager import Subscription, SubscriptionManager
 
 logger = get_logger("BiliVideo/Scheduler")
 
-CheckCallback = Callable[[str, Subscription], Awaitable[None]]
+CheckCallback = Callable[[str, Subscription], Awaitable[int | bool | None]]
 
 
 class CheckScheduler:
@@ -60,8 +60,11 @@ class CheckScheduler:
         self._task = None
 
     async def trigger_once(self) -> int:
-        """Run a single check pass synchronously, returning a count of new
-        videos pushed. Useful for the `/检查更新` command."""
+        """Run a single check pass synchronously, returning pushed video count.
+
+        Callback return values are intentionally permissive for old call sites:
+        `True` counts as 1, integers are summed, and `None`/`False` count as 0.
+        """
 
         return await self._scan_all()
 
@@ -99,8 +102,11 @@ class CheckScheduler:
         for origin, ups in all_subs.items():
             for up in ups:
                 try:
-                    await self._callback(origin, up)
-                    triggered += 1
+                    pushed = await self._callback(origin, up)
+                    if isinstance(pushed, bool):
+                        triggered += int(pushed)
+                    elif isinstance(pushed, int):
+                        triggered += max(0, pushed)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:

@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from ..api.endpoints import _video_info_cache
 from ..api.wbi import _KEY_CACHE
 from ..core.logging import get_logger
+from ..llm.provider import DisabledLLMProvider
 from ..services import BiliVideoServices
 
 logger = get_logger("BiliVideo/Status")
@@ -25,13 +26,18 @@ async def handle_status(services: BiliVideoServices, event: object) -> AsyncIter
     backends = ", ".join(services.renderer.available_backends) or "无 (将回退纯文本)"
     wkhtml = "✅" if shutil.which("wkhtmltoimage") or shutil.which("wkhtmltoimage.exe") else "❌"
     ffmpeg = "✅" if shutil.which("ffmpeg") or shutil.which("ffmpeg.exe") else "❌"
+    llm_state = (
+        "未配置"
+        if isinstance(services.llm, DisabledLLMProvider)
+        else (cfg.llm_model if cfg.is_openai_compatible else "astrbot 内置")
+    )
 
     body = (
         "🩺 biliVideo 状态\n"
         "━━━━━━━━━━━━━━━━━━━\n"
         f"📌 版本: 2.0.0\n"
         f"🔐 登录: {cookie_state}\n"
-        f"🤖 LLM: {cfg.llm_provider} / {cfg.llm_model if cfg.is_openai_compatible else 'astrbot 内置'}\n"
+        f"🤖 LLM: {cfg.llm_provider} / {llm_state}\n"
         f"🎨 渲染后端: {backends}\n"
         f"🛠 系统工具: ffmpeg {ffmpeg}  wkhtmltopdf {wkhtml}\n"
         f"🔁 自动识别: {'开' if services.enable_miniapp_detect else '关'}\n"

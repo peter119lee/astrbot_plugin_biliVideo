@@ -166,7 +166,15 @@ async def handle_check_updates(
                     f"https://www.bilibili.com/video/{latest.bvid}"
                 )
             except BiliVideoError as exc:
-                yield event.plain_result(exc.user_message)  # type: ignore[attr-defined]
+                services.logger.warning(
+                    f"manual check summary failed for {up.name} bvid={latest.bvid}: {exc}"
+                )
+                await services.subscription_manager.update_last_video(origin, up.mid, latest.bvid)
+                yield event.plain_result(  # type: ignore[attr-defined]
+                    f"{exc.user_message}\n"
+                    "⚠️ 已记录该视频,避免下次检查重复提醒。需要重试请手动发送 "
+                    f"/总结 https://www.bilibili.com/video/{latest.bvid}"
+                )
                 continue
             components = render_note_components(services, note.markdown)
             async for resp in yield_note_response(services, event, components, video_info=note.video_info):

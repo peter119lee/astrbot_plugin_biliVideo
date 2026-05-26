@@ -6,7 +6,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from ..core.exceptions import RenderError
+from ..core.exceptions import PartialRenderError, RenderError
 from ..core.logging import get_logger
 from .pagination import split_by_chapters
 from .templates import (
@@ -35,7 +35,7 @@ class WkHtmlRenderer:
         max_cards_per_image: int = 6,
         enable_split: bool = True,
     ) -> list[Path]:
-        chapter_count = markdown_text.count("\n## ")
+        chapter_count = sum(1 for line in markdown_text.splitlines() if line.startswith("## "))
         if not enable_split or chapter_count <= max_cards_per_image:
             return self._render_single(markdown_text, base_filename)
 
@@ -44,6 +44,7 @@ class WkHtmlRenderer:
             return self._render_single(pages[0], base_filename)
 
         outputs: list[Path] = []
+        failed_pages: list[int] = []
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         total = len(pages)
         for idx, page_md in enumerate(pages, start=1):
@@ -57,9 +58,20 @@ class WkHtmlRenderer:
                     page_label=None if total == 1 else f"(第 {idx}/{total} 页)",
                 )
             except RenderError as exc:
-                logger.warning(f"page {idx}/{total} failed: {exc}")
+                logger.warning(
+                    f"page {idx}/{total} failed: {exc}; "
+                    f"page_chars={len(page_md)} chapters={page_md.count(chr(10) + '## ')}"
+                )
+                failed_pages.append(idx)
                 continue
             outputs.append(destination)
+        if failed_pages and outputs:
+            raise PartialRenderError(
+                f"partial render failed; failed_pages={failed_pages}, "
+                f"succeeded_pages={[p.name for p in outputs]}",
+                generated_paths=outputs,
+                failed_pages=failed_pages,
+            )
         if not outputs:
             raise RenderError("all pages failed to render")
         return outputs

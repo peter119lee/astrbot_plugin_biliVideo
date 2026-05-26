@@ -32,35 +32,45 @@ async def push_callback(
     services: BiliVideoServices,
     origin: str,
     sub: Subscription,
-) -> None:
+) -> int:
     try:
         videos = await get_latest_videos(services.http_client, sub.mid, count=1)
     except BiliVideoError as exc:
         services.logger.warning(f"latest fetch failed for {sub.name}: {exc}")
-        return
+        return 0
     if not videos:
-        return
+        return 0
 
     latest = videos[0]
     if latest.bvid == sub.last_bvid:
-        return
+        return 0
 
     if not sub.last_bvid:
         await services.subscription_manager.update_last_video(origin, sub.mid, latest.bvid)
-        return
+        return 0
 
     services.logger.info(f"new video for {sub.name}: {latest.title}")
     chain_components = await _build_chain(services, sub, latest)
 
     push_origins = await services.subscription_manager.get_push_origins() or [origin]
+    sent_count = 0
     for target in push_origins:
         try:
             mc = MessageChain(chain=chain_components)
             await services.astrbot_context.send_message(target, mc)  # type: ignore[attr-defined]
+            sent_count += 1
         except Exception as exc:
             services.logger.error(f"push to {target} failed: {exc}")
 
-    await services.subscription_manager.update_last_video(origin, sub.mid, latest.bvid)
+    if sent_count > 0:
+        await services.subscription_manager.update_last_video(origin, sub.mid, latest.bvid)
+        return 1
+
+    services.logger.warning(
+        f"new video for {sub.name} was not marked as pushed because all targets failed: "
+        f"bvid={latest.bvid} targets={push_origins}"
+    )
+    return 0
 
 
 # ──────────────────────────── helpers ──────────────────────────────

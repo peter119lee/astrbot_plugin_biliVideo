@@ -18,8 +18,9 @@ from .auth.cookies import CookieJar
 from .auth.qrlogin import QRLoginService
 from .core.config import PluginConfig
 from .core.logging import get_logger
+from .core.runtime_state import RuntimeState
 from .downloader.ytdlp_downloader import YtDlpDownloader
-from .llm.provider import LLMProvider, build_provider
+from .llm.provider import DisabledLLMProvider, LLMProvider, build_provider
 from .render.chain import RenderChain
 from .search import SearchService
 from .subscription.manager import SubscriptionManager
@@ -50,6 +51,7 @@ class BiliVideoServices:
         self.astrbot_context = astrbot_context
         Path(data_dir).mkdir(parents=True, exist_ok=True)
         Path(data_dir, "images").mkdir(parents=True, exist_ok=True)
+        self.runtime_state = RuntimeState(data_dir)
 
         # Auth + cookies
         self.cookies = CookieJar(data_dir)
@@ -68,6 +70,10 @@ class BiliVideoServices:
 
         # LLM
         self.llm: LLMProvider = build_provider(config, astrbot_context=astrbot_context)
+        if isinstance(self.llm, DisabledLLMProvider):
+            self.logger.warning(
+                "openai_compatible credentials missing; LLM disabled but plugin startup continues"
+            )
 
         # Summary + render
         self.orchestrator = SummaryOrchestrator(
@@ -100,7 +106,10 @@ class BiliVideoServices:
         self.inflight: InflightDeduper[str, object] = InflightDeduper()
 
         # Run-time mutable flags
-        self.enable_miniapp_detect = config.enable_miniapp_detect
+        runtime_detect = self.runtime_state.get_bool("enable_miniapp_detect")
+        self.enable_miniapp_detect = (
+            runtime_detect if runtime_detect is not None else config.enable_miniapp_detect
+        )
 
         # Track in-flight long jobs (e.g. AI search download)
         self._download_task: asyncio.Task | None = None

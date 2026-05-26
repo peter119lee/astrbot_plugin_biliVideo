@@ -8,7 +8,9 @@ by all callers and stale keys expire automatically.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
 import time
 import urllib.parse
 from collections.abc import Mapping
@@ -62,7 +64,7 @@ async def _fetch_mixin_key(cookies: Mapping[str, str] | None) -> str:
                 if resp.status != 200:
                     raise NetworkError(f"WBI nav HTTP {resp.status}")
                 payload = await resp.json()
-    except aiohttp.ClientError as exc:
+    except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError) as exc:
         raise NetworkError(f"WBI nav network error: {exc}") from exc
 
     wbi_img = (payload.get("data") or {}).get("wbi_img") or {}

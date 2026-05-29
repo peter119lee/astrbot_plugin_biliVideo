@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 from collections.abc import Iterable, Mapping
+from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
 
@@ -23,6 +25,28 @@ from ..core.logging import get_logger
 from ..core.types import AudioDownloadResult, TranscriptResult, TranscriptSegment
 
 logger = get_logger("BiliVideo/Download")
+
+
+@lru_cache(maxsize=1)
+def _ffmpeg_location() -> str | None:
+    """Resolve an ffmpeg binary for yt-dlp's audio postprocessor.
+
+    Prefer a system ffmpeg (respect the host/container setup); when none is
+    on PATH, fall back to the static binary shipped by ``imageio-ffmpeg`` so
+    audio extraction works on a bare VPS with no ``apt install ffmpeg``.
+    Returns ``None`` to let yt-dlp search PATH itself.
+    """
+
+    if shutil.which("ffmpeg") or shutil.which("ffmpeg.exe"):
+        return None
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception as exc:  # pragma: no cover - optional wheel
+        logger.warning(f"imageio-ffmpeg unavailable; relying on PATH ffmpeg: {exc}")
+        return None
+
 
 DEFAULT_SUBTITLE_LANGS: tuple[str, ...] = (
     "zh-Hans",
@@ -101,6 +125,10 @@ class YtDlpDownloader:
         }
         if self._cookies_file and self._cookies_file.exists():
             opts["cookiefile"] = str(self._cookies_file)
+
+        ffmpeg_path = _ffmpeg_location()
+        if ffmpeg_path:
+            opts["ffmpeg_location"] = ffmpeg_path
 
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:

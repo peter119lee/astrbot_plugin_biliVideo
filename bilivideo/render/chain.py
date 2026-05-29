@@ -46,8 +46,6 @@ class RenderChain:
     def __init__(self, *, output_dir: str | Path, image_width: int = 1400) -> None:
         self._backends: list[tuple[str, _Renderer]] = []
         self._diagnostics: dict[str, str] = {}
-        output_path = Path(output_dir)
-        font_cache_dir = output_path.parent / "fonts"
 
         wkhtml_path = _wkhtmltoimage_path()
         if wkhtml_path:
@@ -61,18 +59,11 @@ class RenderChain:
                 "wkhtmltoimage not found on PATH; skipping high-fidelity HTML renderer"
             )
 
-        pillow_ready, pillow_reason = check_pillow_ready(font_cache_dir)
+        pillow_ready, pillow_reason = check_pillow_ready()
         self._diagnostics["pillow"] = ("ready " if pillow_ready else "unavailable: ") + pillow_reason
         if pillow_ready:
             self._backends.append(
-                (
-                    "pillow",
-                    PillowRenderer(
-                        output_dir=output_dir,
-                        image_width=image_width,
-                        font_cache_dir=font_cache_dir,
-                    ),
-                )
+                ("pillow", PillowRenderer(output_dir=output_dir, image_width=image_width))
             )
         else:
             logger.warning(f"Pillow renderer unavailable: {pillow_reason}")

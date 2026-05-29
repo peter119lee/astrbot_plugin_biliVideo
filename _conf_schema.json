@@ -107,14 +107,14 @@
   "enable_multi_platform": {
     "type": "bool",
     "default": false,
-    "description": "[总结] 实验:多平台支持",
-    "hint": "开启后 /总结 支持 YouTube/抖音(yt-dlp 下载，字幕优先)。非中文音频的 ASR 质量不保证，实验性功能"
+    "description": "[总结] 🧪 实验功能:多平台(YouTube/抖音)",
+    "hint": "⚠️ 实验性,默认关闭。开启后 /总结 也接受 YouTube/抖音链接(yt-dlp 下载,优先用平台字幕)。注意:无字幕时回退的 BCut ASR 仅针对中文优化,非中文视频转写质量很差。本插件以 B 站为主,多平台仅供尝鲜。"
   },
   "output_image": {
     "type": "bool",
     "default": true,
     "description": "[渲染] 图片输出",
-    "hint": "关闭后回退为纯文本(免装 wkhtmltopdf)"
+    "hint": "开箱即用:内建中文字体 + Pillow,无需装 wkhtmltopdf;装了 wkhtmltopdf 则自动用更精美的渲染。关闭则回退纯文本"
   },
   "enable_auto_split": {
     "type": "bool",

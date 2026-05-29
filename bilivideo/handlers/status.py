@@ -32,7 +32,15 @@ async def handle_status(services: BiliVideoServices, event: object) -> AsyncIter
     if render_diag_lines:
         render_diag_lines = f"\n🔎 渲染诊断:\n{render_diag_lines}"
     wkhtml = "✅" if shutil.which("wkhtmltoimage") or shutil.which("wkhtmltoimage.exe") else "❌"
-    ffmpeg = "✅" if shutil.which("ffmpeg") or shutil.which("ffmpeg.exe") else "❌"
+    if shutil.which("ffmpeg") or shutil.which("ffmpeg.exe"):
+        ffmpeg = "✅ 系统"
+    else:
+        try:
+            import imageio_ffmpeg
+
+            ffmpeg = "✅ 内建" if imageio_ffmpeg.get_ffmpeg_exe() else "❌"
+        except Exception:
+            ffmpeg = "❌"
     if isinstance(services.llm, DisabledLLMProvider):
         llm_state = "未配置"
     elif cfg.is_openai_compatible:

@@ -9,7 +9,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.0.0-orange)](CHANGELOG.md)
-[![Tests](https://img.shields.io/badge/tests-71%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-173%20passing-success)](tests/)
 
 </div>
 
@@ -22,7 +22,7 @@ biliVideo v2.0 是一次**完全重写**的工程升级。主要目标:
 - **可维护性**:`main.py` 从 2,000 行单一巨型文件瘦身到约 160 行。所有逻辑下放到 `bilivideo/` 子包,按职责严格分层。
 - **健壮性**:HTTP 层采用共享 `aiohttp.ClientSession` + 指数退避重试;订阅文件原子写入 + `fsync`;Cookie 文件 0600 权限。
 - **响应速度**:带 TTL 的 LRU 缓存避免同一 BV 重复请求 B 站;single-flight 让多人同时粘贴同一链接只触发一次工作。
-- **可测试**:71 个 PyTest 单元测试覆盖 URL 解析、分页、智能截断、订阅持久化、冷却、缓存、消息路由等纯逻辑。
+- **可测试**:173 个 PyTest 单元/集成测试覆盖 URL 解析、分页、智能截断、订阅持久化、冷却、缓存、消息路由、渲染降级链等。
 - **类型化**:所有 API 返回 `dataclass`(`VideoInfo` / `UploaderInfo` / …),配置读取经 `PluginConfig` 校验。
 
 > 命令、配置项、行为对终端用户**完全向后兼容**。配置文件不需要改动即可升级。
@@ -32,10 +32,10 @@ biliVideo v2.0 是一次**完全重写**的工程升级。主要目标:
 ## 🚀 快速开始
 
 ```text
-1. AstrBot 管理面板 → 插件管理 → 上传插件 zip → 重启
-2. 安装系统依赖:FFmpeg(必须)和 wkhtmltopdf(图片输出必须)
-3. /B站登录  → 扫码登录
-4. /总结 https://www.bilibili.com/video/BV1xx411c7mD
+1. AstrBot 插件市场搜索 biliVideo,或「安装插件 → 填 Git 仓库地址」一键安装 → 重启
+   依赖全部由 AstrBot 自动 pip 安装(含静态 ffmpeg + 内建中文字体),VPS / Docker 无需手动装系统依赖
+2. /B站登录  → 扫码登录
+3. /总结 https://www.bilibili.com/video/BV1xx411c7mD
 ```
 
 ---
@@ -64,53 +64,42 @@ biliVideo v2.0 是一次**完全重写**的工程升级。主要目标:
 - Python 3.10+
 - 至少配置一个 LLM Provider(DeepSeek、OpenAI、Claude 等),或在配置中切到 `openai_compatible` 自填 API。
 
-### 系统依赖
+### 开箱即用(VPS / Docker / Zeabur 一键安装)
 
-#### FFmpeg(必须)
+本插件**无需手动安装任何系统依赖**。AstrBot 安装插件时会自动 `pip install -r requirements.txt`,其中已包含:
 
-```bash
-# Ubuntu / Debian
-apt install -y ffmpeg
+- **ffmpeg**:由 `imageio-ffmpeg` 提供静态二进制,无字幕视频走 ASR 转写时自动调用;系统若已装 ffmpeg 则优先用系统版。
+- **图片渲染**:内建 Noto Sans SC 中文字型(GB2312 子集,SIL OFL)+ Pillow,容器无图形环境也能出图。
+- 装好后用 `/总结状态` 即可看到检测出的渲染后端与 ffmpeg 来源(系统 / 内建)。
 
-# macOS
-brew install ffmpeg
+### 可选增强(非必须)
 
-# Windows: 下载 https://ffmpeg.org/download.html 并加入 PATH
-```
+#### wkhtmltopdf — 更精美的图片
 
-#### wkhtmltopdf(开启图片输出时必须)
-
-`imgkit` 是 Python 调用层,真正渲染由 `wkhtmltopdf` 完成。
+不装也能出图(Pillow 简洁卡片版)。装了可获得双栏暗色卡片的高保真渲染:
 
 ```bash
 # Ubuntu / Debian
 apt install -y wkhtmltopdf fonts-wqy-zenhei
 
-# CentOS / RHEL
-yum install -y wkhtmltopdf google-noto-sans-cjk-fonts
+# Docker(无图形环境时配 xvfb)
+apt install -y wkhtmltopdf xvfb fonts-wqy-zenhei fonts-noto-cjk
+printf '#!/bin/bash\nxvfb-run --auto-servernum /usr/bin/wkhtmltoimage "$@"\n' > /usr/local/bin/wkhtmltoimage
+chmod +x /usr/local/bin/wkhtmltoimage
 
 # macOS
 brew install wkhtmltopdf
-
-# Windows: 下载 https://wkhtmltopdf.org/downloads.html
 ```
 
-#### Docker 容器内安装
+#### 系统中文字体 — 更全的字形覆盖
 
-容器通常缺少图形环境和中文字体:
+内建字型为 GB2312 子集,已覆盖绝大多数简体中文。若需繁体 / 日文 / 生僻字的完整覆盖,装一个系统 CJK 字体即可(会被优先使用):
 
 ```bash
-docker exec -it <container> bash
-apt update && apt install -y wkhtmltopdf xvfb fonts-wqy-zenhei fonts-noto-cjk
-
-cat > /usr/local/bin/wkhtmltoimage <<'EOF'
-#!/bin/bash
-xvfb-run --auto-servernum /usr/bin/wkhtmltoimage "$@"
-EOF
-chmod +x /usr/local/bin/wkhtmltoimage
+apt install -y fonts-noto-cjk    # 或 fonts-wqy-zenhei
 ```
 
-> 不想装 wkhtmltopdf?把 `output_image` 设为 `false`,纯文本输出无需图片渲染依赖。
+> 纯文本模式:把 `output_image` 设为 `false` 即可完全免图片渲染依赖。
 
 ---
 

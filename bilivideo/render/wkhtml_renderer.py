@@ -46,6 +46,7 @@ class WkHtmlRenderer:
 
         outputs: list[Path] = []
         failed_pages: list[int] = []
+        page_errors: dict[int, str] = {}
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         total = len(pages)
         for idx, page_md in enumerate(pages, start=1):
@@ -64,6 +65,7 @@ class WkHtmlRenderer:
                     f"page_chars={len(page_md)} chapters={page_md.count(chr(10) + '## ')}"
                 )
                 failed_pages.append(idx)
+                page_errors[idx] = str(exc)
                 continue
             outputs.append(destination)
         if failed_pages and outputs:
@@ -72,6 +74,7 @@ class WkHtmlRenderer:
                 f"succeeded_pages={[p.name for p in outputs]}",
                 generated_paths=outputs,
                 failed_pages=failed_pages,
+                page_errors=page_errors,
             )
         if not outputs:
             raise RenderError("all pages failed to render")
@@ -139,4 +142,6 @@ class WkHtmlRenderer:
         if not destination.exists():
             raise RenderError("imgkit produced no file")
         size = destination.stat().st_size
+        if size <= 0:
+            raise RenderError(f"imgkit produced empty file: {destination}")
         logger.info(f"rendered {destination.name} ({size} bytes, {elapsed}s)")

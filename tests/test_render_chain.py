@@ -161,9 +161,24 @@ def test_chain_keeps_best_partial_when_multiple_backends_partial(tmp_path) -> No
         raise AssertionError("expected PartialRenderError")
 
 
-def test_chain_skips_unavailable_wkhtmltopdf(tmp_path) -> None:
-    """When wkhtmltoimage isn't on PATH, only the Pillow backend is added."""
+def test_chain_skips_unavailable_backends(tmp_path) -> None:
+    """Unavailable renderers are reported but not listed as ready."""
 
-    with patch("bilivideo.render.chain._wkhtmltopdf_available", return_value=False):
+    with (
+        patch("bilivideo.render.chain._wkhtmltoimage_path", return_value=None),
+        patch("bilivideo.render.chain.check_pillow_ready", return_value=(False, "no CJK font")),
+    ):
+        chain = RenderChain(output_dir=str(tmp_path))
+    assert chain.available_backends == []
+    assert chain.backend_diagnostics["wkhtmltopdf"] == "missing wkhtmltoimage on PATH"
+    assert chain.backend_diagnostics["pillow"] == "unavailable: no CJK font"
+
+
+def test_chain_reports_pillow_ready(tmp_path) -> None:
+    with (
+        patch("bilivideo.render.chain._wkhtmltoimage_path", return_value=None),
+        patch("bilivideo.render.chain.check_pillow_ready", return_value=(True, "font=/tmp/font.ttc")),
+    ):
         chain = RenderChain(output_dir=str(tmp_path))
     assert chain.available_backends == ["pillow"]
+    assert chain.backend_diagnostics["pillow"] == "ready font=/tmp/font.ttc"

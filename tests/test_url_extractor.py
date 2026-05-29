@@ -8,6 +8,7 @@ from bilivideo.parsing.url_extractor import (
     extract_long_url,
     extract_short_url,
     extract_uid,
+    extract_url,
     is_bilibili_domain,
     is_short_bili_url,
     parse_json_card,
@@ -74,6 +75,18 @@ class TestExtractShortUrl:
         assert is_short_bili_url("https://bili33.cn/abc")
 
 
+class TestExtractUrl:
+    def test_extracts_generic_video_url(self) -> None:
+        assert extract_url("看这个 https://youtu.be/abc123，") == "https://youtu.be/abc123"
+        assert (
+            extract_url("<https://www.douyin.com/video/123)>")
+            == "https://www.douyin.com/video/123"
+        )
+
+    def test_no_url(self) -> None:
+        assert extract_url("BV1xx411c7mD only") is None
+
+
 class TestDetectPlatform:
     def test_bilibili(self) -> None:
         assert detect_platform("https://www.bilibili.com/video/BV1") == "bilibili"
@@ -82,6 +95,16 @@ class TestDetectPlatform:
 
     def test_youtube(self) -> None:
         assert detect_platform("https://youtu.be/xxx") == "youtube"
+        assert detect_platform("https://www.youtube.com/watch?v=abc") == "youtube"
+
+    def test_douyin_and_tiktok(self) -> None:
+        assert detect_platform("https://www.douyin.com/video/123") == "douyin"
+        assert detect_platform("https://www.tiktok.com/@u/video/123") == "douyin"
+
+    def test_rejects_platform_substring_deception(self) -> None:
+        assert detect_platform("https://notyoutube.com/watch?v=abc") is None
+        assert detect_platform("https://evil.com/?next=youtube.com") is None
+        assert detect_platform("https://douyin.com.evil.com/video/123") is None
 
     def test_none(self) -> None:
         assert detect_platform("") is None

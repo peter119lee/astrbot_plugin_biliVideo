@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from bilivideo.handlers.summary import _canonicalize_video_url, _extract_video_url
+from bilivideo.handlers.summary import (
+    _canonicalize_video_url,
+    _extract_video_url,
+    _is_platform_supported,
+)
 
 
 class _HTTP:
@@ -25,6 +29,26 @@ class _Services:
 def test_manual_summary_cleans_short_url_argument() -> None:
     url = _extract_video_url("/总结 https://b23.tv/abc，", object())
     assert url == "https://b23.tv/abc"
+
+
+def test_manual_summary_extracts_youtube_url() -> None:
+    url = _extract_video_url("/总结 https://youtu.be/abc123，", object())
+    assert url == "https://youtu.be/abc123"
+
+
+def test_manual_summary_extracts_douyin_url() -> None:
+    url = _extract_video_url("/总结 https://www.douyin.com/video/123)", object())
+    assert url == "https://www.douyin.com/video/123"
+
+
+def test_platform_support_respects_multi_platform_flag() -> None:
+    assert _is_platform_supported(
+        "https://www.bilibili.com/video/BV1xx411c7mD",
+        enable_multi_platform=False,
+    )
+    assert not _is_platform_supported("https://youtu.be/abc", enable_multi_platform=False)
+    assert _is_platform_supported("https://youtu.be/abc", enable_multi_platform=True)
+    assert _is_platform_supported("https://www.douyin.com/video/123", enable_multi_platform=True)
 
 
 @pytest.mark.asyncio

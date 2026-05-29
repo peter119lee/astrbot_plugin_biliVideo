@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from bilivideo.core.config import PluginConfig
-from bilivideo.core.exceptions import PartialRenderError
+from bilivideo.core.exceptions import PartialRenderError, RenderError
 from bilivideo.handlers import _render_helper
 
 
@@ -29,15 +29,19 @@ class _Plain:
 
 
 class _Renderer:
-    def __init__(self, paths, failed_pages) -> None:
+    def __init__(self, paths=None, failed_pages=None, error: Exception | None = None) -> None:
+        self.error = error
         self.paths = paths
         self.failed_pages = failed_pages
 
     def render(self, *args, **kwargs):
+        if self.error is not None:
+            raise self.error
         raise PartialRenderError(
             "partial",
             generated_paths=list(self.paths),
             failed_pages=list(self.failed_pages),
+            page_errors={page: f"page {page} exploded" for page in self.failed_pages},
         )
 
 
@@ -62,4 +66,35 @@ def test_partial_render_returns_components_without_raw_string(tmp_path, monkeypa
     assert isinstance(rendered[0], _Image)
     assert isinstance(rendered[1], _Plain)
     assert "第 1 页图片生成失败" in rendered[1].text
+    assert "page 1 exploded" in rendered[1].text
     assert not any(isinstance(item, str) for item in rendered)
+
+
+def test_render_error_returns_visible_fallback_text(monkeypatch) -> None:
+    monkeypatch.setattr(_render_helper, "Image", _Image)
+    rendered = _render_helper.render_note_components(
+        _Services(_Renderer(error=RenderError("no CJK font"))),
+        "# 标题",
+    )
+
+    assert isinstance(rendered, str)
+    assert "图片渲染失败" in rendered
+    assert "no CJK font" in rendered
+
+
+def test_invalid_paths_return_visible_fallback_text(tmp_path, monkeypatch) -> None:
+    missing = tmp_path / "missing.png"
+    monkeypatch.setattr(_render_helper, "Image", _Image)
+
+    class _InvalidPathRenderer:
+        def render(self, *args, **kwargs):
+            return [missing]
+
+    rendered = _render_helper.render_note_components(
+        _Services(_InvalidPathRenderer()),
+        "# 标题",
+    )
+
+    assert isinstance(rendered, str)
+    assert "图片渲染失败" in rendered
+    assert str(missing) in rendered

@@ -61,6 +61,25 @@ def _find_cjk_font() -> str | None:
     return None
 
 
+def check_pillow_ready() -> tuple[bool, str]:
+    """Return whether Pillow can render CJK text in this environment."""
+
+    try:
+        from PIL import Image, ImageDraw, ImageFont  # noqa: F401
+    except ImportError as exc:
+        return False, f"Pillow not installed: {exc}"
+
+    font_path = _find_cjk_font()
+    if font_path is None:
+        return False, "no CJK font discovered; install wqy-zenhei or noto-cjk"
+
+    try:
+        ImageFont.truetype(font_path, 14)
+    except Exception as exc:
+        return False, f"CJK font cannot be loaded: {font_path} ({exc})"
+    return True, f"font={font_path}"
+
+
 # ──────────────────────── markdown parsing ────────────────────────
 
 
@@ -149,6 +168,7 @@ class PillowRenderer:
         pages = split_by_chapters(markdown_text, max_cards=max_cards_per_image)
         outputs: list[Path] = []
         failed_pages: list[int] = []
+        page_errors: dict[int, str] = {}
         total = len(pages)
         for idx, page in enumerate(pages, start=1):
             label = None if total == 1 else f"({idx}/{total})"
@@ -162,12 +182,14 @@ class PillowRenderer:
                     f"page_chars={len(page)} chapters={page.count(chr(10) + '## ')}"
                 )
                 failed_pages.append(idx)
+                page_errors[idx] = str(exc)
         if failed_pages and outputs:
             raise PartialRenderError(
                 f"partial pillow render failed; failed_pages={failed_pages}, "
                 f"succeeded_pages={[p.name for p in outputs]}",
                 generated_paths=outputs,
                 failed_pages=failed_pages,
+                page_errors=page_errors,
             )
         if not outputs:
             raise RenderError("all pages failed to render with Pillow")

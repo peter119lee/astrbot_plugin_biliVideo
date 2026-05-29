@@ -8,6 +8,7 @@ package the result without knowing about the renderer internals.
 from __future__ import annotations
 
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -30,9 +31,9 @@ def render_note_components(services: BiliVideoServices, markdown_text: str) -> l
     if not services.config.output_image:
         return markdown_text
     if Image is None:
-        return markdown_text
+        return _render_fallback_text(markdown_text, "AstrBot Image 组件不可用")
 
-    base_filename = f"note_{int(time.time() * 1000)}"
+    base_filename = f"note_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
     try:
         paths = services.renderer.render(
             markdown_text,
@@ -41,13 +42,15 @@ def render_note_components(services: BiliVideoServices, markdown_text: str) -> l
             enable_split=services.config.enable_auto_split,
         )
         partial_failed_pages: list[int] = []
+        partial_page_errors: dict[int, str] = {}
     except PartialRenderError as exc:
         logger.warning(f"partial render fallback text appended: {exc}")
         paths = exc.generated_paths
         partial_failed_pages = exc.failed_pages
+        partial_page_errors = exc.page_errors
     except RenderError as exc:
         logger.warning(f"render fallback to text: {exc}")
-        return markdown_text
+        return _render_fallback_text(markdown_text, str(exc))
 
     components: list[Any] = []
     fallback_texts: list[str] = []
@@ -64,17 +67,20 @@ def render_note_components(services: BiliVideoServices, markdown_text: str) -> l
             logger.warning(f"image component build failed for {path}: {exc}")
             fallback_texts.append(f"⚠️ 图片文件 {path.name} 发送失败,以下为文本兜底:\n\n{markdown_text}")
     if partial_failed_pages:
+        error_details = "; ".join(
+            f"第 {page} 页: {partial_page_errors.get(page, '未知原因')}"
+            for page in partial_failed_pages
+        )
         fallback_texts.append(
             f"⚠️ 第 {', '.join(str(p) for p in partial_failed_pages)} 页图片生成失败,"
-            "以下为完整文本兜底:\n\n" + markdown_text
+            f"原因: {error_details}\n以下为完整文本兜底:\n\n" + markdown_text
         )
     if invalid_paths:
         logger.warning(f"renderer returned invalid image paths: {invalid_paths}")
-        fallback_texts.append(
-            "⚠️ 部分总结图片生成失败,以下为完整文本兜底:\n\n" + markdown_text
-        )
+        fallback_texts.append(f"图片路径无效: {', '.join(invalid_paths)}")
     if not components:
-        return markdown_text
+        reason = "\n".join(fallback_texts) if fallback_texts else "图片组件生成失败"
+        return _render_fallback_text(markdown_text, reason)
     if fallback_texts:
         fallback_text = "\n\n".join(fallback_texts)
         if Plain is None:
@@ -82,3 +88,8 @@ def render_note_components(services: BiliVideoServices, markdown_text: str) -> l
             return components
         components.append(Plain(fallback_text))
     return components
+
+
+def _render_fallback_text(markdown_text: str, reason: str) -> str:
+    clean_reason = (reason or "未知原因").strip()
+    return f"⚠️ 图片渲染失败,已退回纯文本\n原因: {clean_reason}\n\n{markdown_text}"

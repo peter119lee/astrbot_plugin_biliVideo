@@ -62,8 +62,13 @@ def build_video_forward_nodes(
             label = summary_label if idx == 0 else f"{summary_label}(第 {idx + 1} 部分)"
             nodes.append(Node(content=[Plain(f"{label}\n\n{chunk}")], name=bot_name, uin=bot_uin))
     else:
-        for idx, comp in enumerate(rendered):
-            label = summary_label if idx == 0 else f"{summary_label}(第 {idx + 1} 页)"
+        image_idx = 0
+        for comp in rendered:
+            if Plain is not None and isinstance(comp, Plain):
+                label = "⚠️ 渲染失败说明 / 文本兜底"
+            else:
+                image_idx += 1
+                label = summary_label if image_idx == 1 else f"{summary_label}(第 {image_idx} 页)"
             nodes.append(Node(content=[Plain(label), comp], name=bot_name, uin=bot_uin))
 
     return Nodes(nodes=nodes)

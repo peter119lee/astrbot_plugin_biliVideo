@@ -23,6 +23,7 @@ from ..core.constants import (
 
 _TRAILING_URL_CHARS = "\"'`}>]),，。)、）！!？?；;：:"
 SHORT_URL_DOMAINS = ("b23.tv", "bili2233.cn", "bili22.cn", "bili23.cn", "bili33.cn")
+GENERIC_URL_RE = re.compile(r"https?://[^\s<>\"]+", re.IGNORECASE)
 
 # ──────────────────────────── basic ────────────────────────────────
 
@@ -35,12 +36,21 @@ def detect_platform(url: str) -> str | None:
 
     if not url:
         return None
-    lower = url.lower()
-    if "bilibili.com" in lower or any(domain in lower for domain in SHORT_URL_DOMAINS):
+    try:
+        host = urllib.parse.urlparse(_clean_url_token(url)).hostname or ""
+    except ValueError:
+        return None
+    host = host.lower().rstrip(".")
+    if any(host == d or host.endswith("." + d) for d in BILI_DOMAINS):
         return "bilibili"
-    if "youtube.com" in lower or "youtu.be" in lower:
+    if host in {"youtu.be", "youtube.com"} or host.endswith(".youtube.com"):
         return "youtube"
-    if "douyin.com" in lower or "tiktok.com" in lower:
+    if (
+        host == "douyin.com"
+        or host.endswith(".douyin.com")
+        or host == "tiktok.com"
+        or host.endswith(".tiktok.com")
+    ):
         return "douyin"
     return None
 
@@ -87,6 +97,15 @@ def extract_short_url(text: str) -> str | None:
     if match is None:
         return None
     return _clean_url_token(match.group(0))
+
+
+def extract_url(text: str) -> str | None:
+    """Extract the first generic http(s) URL from chat text."""
+
+    if not text:
+        return None
+    match = GENERIC_URL_RE.search(text)
+    return _clean_url_token(match.group(0)) if match else None
 
 
 def _clean_url_token(url: str) -> str:

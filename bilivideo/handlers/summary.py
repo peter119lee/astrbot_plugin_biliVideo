@@ -14,6 +14,7 @@ from ..parsing.url_extractor import (
     extract_long_url,
     extract_short_url,
     extract_uid,
+    extract_url,
     is_short_bili_url,
 )
 from ..services import BiliVideoServices
@@ -163,6 +164,9 @@ def _extract_video_url(raw_msg: str, event: object) -> str:
         short_url = extract_short_url(first)
         if short_url:
             return short_url
+        generic_url = extract_url(first)
+        if generic_url:
+            return generic_url
 
     long_url = extract_long_url(raw_msg) or extract_long_url(full_text)
     if long_url:
@@ -171,6 +175,10 @@ def _extract_video_url(raw_msg: str, event: object) -> str:
     short_url = extract_short_url(raw_msg) or extract_short_url(full_text)
     if short_url:
         return short_url
+
+    generic_url = extract_url(raw_msg) or extract_url(full_text)
+    if generic_url:
+        return generic_url
 
     bvid = extract_bvid(raw_msg) or extract_bvid(full_text)
     if bvid:

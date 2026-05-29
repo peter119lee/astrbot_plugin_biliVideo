@@ -17,13 +17,20 @@ logger = get_logger("BiliVideo/Status")
 async def handle_status(services: BiliVideoServices, event: object) -> AsyncIterator[object]:
     cfg = services.config
     cookie_state = "✅ 已登录" if services.is_logged_in() else "❌ 未登录"
-    scheduler_state = (
-        "✅ 运行中"
-        if services.scheduler is not None and services.scheduler.is_running()
-        else "❌ 未启动"
-    )
+    if not cfg.enable_auto_push:
+        scheduler_state = "关闭(配置)"
+    elif services.scheduler is not None and services.scheduler.is_running():
+        scheduler_state = "✅ 运行中"
+    else:
+        scheduler_state = "⚠️ 已启用但未运行"
     targets = await services.subscription_manager.get_push_targets()
     backends = ", ".join(services.renderer.available_backends) or "无 (将回退纯文本)"
+    diagnostics = getattr(services.renderer, "backend_diagnostics", {})
+    render_diag_lines = "\n".join(
+        f"  - {name}: {reason}" for name, reason in diagnostics.items()
+    )
+    if render_diag_lines:
+        render_diag_lines = f"\n🔎 渲染诊断:\n{render_diag_lines}"
     wkhtml = "✅" if shutil.which("wkhtmltoimage") or shutil.which("wkhtmltoimage.exe") else "❌"
     ffmpeg = "✅" if shutil.which("ffmpeg") or shutil.which("ffmpeg.exe") else "❌"
     if isinstance(services.llm, DisabledLLMProvider):
@@ -41,9 +48,9 @@ async def handle_status(services: BiliVideoServices, event: object) -> AsyncIter
         f"🔐 登录: {cookie_state}\n"
         f"🤖 LLM: {cfg.llm_provider} / {llm_state}\n"
         f"🎨 渲染后端: {backends}\n"
-        f"🛠 系统工具: ffmpeg {ffmpeg}  wkhtmltopdf {wkhtml}\n"
+        f"🛠 系统工具: ffmpeg {ffmpeg}  wkhtmltoimage {wkhtml}\n"
         f"🔁 自动识别: {'开' if services.enable_miniapp_detect else '关'}\n"
-        f"🌐 多平台: {'on (实验)' if cfg.enable_multi_platform else 'off'}\n"
+        f"🌐 多平台: {'on (实验,仅 /总结)' if cfg.enable_multi_platform else 'off'}\n"
         f"📡 定时检查: {scheduler_state} (间隔 {cfg.check_interval_minutes} 分钟)\n"
         f"📋 推送目标: {len(targets)} 个\n"
         f"🗄  视频信息缓存: {video_info_cache_size()} 条\n"
@@ -51,6 +58,7 @@ async def handle_status(services: BiliVideoServices, event: object) -> AsyncIter
         f"🖼 图片输出: {'on' if cfg.output_image else 'off'}  / "
         f" 自动分图: {'on' if cfg.enable_auto_split else 'off'}\n"
         f"💬 合并转发: {'on' if cfg.enable_forward_message else 'off'}\n"
+        f"{render_diag_lines}\n"
     )
     yield event.plain_result(body)  # type: ignore[attr-defined]
 

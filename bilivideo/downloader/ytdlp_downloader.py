@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from hashlib import sha256
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
@@ -129,7 +130,7 @@ class YtDlpDownloader:
         target = Path(output_dir) if output_dir else self._data_dir
         target.mkdir(parents=True, exist_ok=True)
         lang_list = list(langs) if langs else list(DEFAULT_SUBTITLE_LANGS)
-        video_id = _extract_video_id_from_url(video_url) or "video"
+        video_id = _extract_video_id_from_url(video_url) or _stable_video_id(video_url)
 
         opts = {
             "writesubtitles": True,
@@ -173,6 +174,10 @@ class YtDlpDownloader:
 def _extract_video_id_from_url(url: str) -> str | None:
     match = re.search(r"BV[0-9A-Za-z]{10}", url or "")
     return match.group(0) if match else None
+
+
+def _stable_video_id(url: str) -> str:
+    return "video_" + sha256((url or "").encode("utf-8")).hexdigest()[:12]
 
 
 def _parse_sub(sub_info: dict, language: str, output_dir: Path, video_id: str) -> TranscriptResult | None:

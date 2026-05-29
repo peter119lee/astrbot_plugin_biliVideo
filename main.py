@@ -83,42 +83,42 @@ class BiliVideoPlugin(Star):
 
     # ──────────────────────── command bindings ────────────────────────
 
-    @filter.command("总结帮助", alias={"BiliVideo help", "总结help"})
+    @filter.command("总结帮助", alias={"bvhelp", "总结help"})
     async def cmd_help(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_help(self._services, event):
             yield resp
 
-    @filter.command("识别开关", alias={"detect_toggle", "切换识别"})
+    @filter.command("识别开关", alias={"bvdetect", "detect_toggle", "切换识别"})
     async def cmd_toggle_detect(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_toggle_detect(self._services, event):
             yield resp
 
-    @filter.command("总结状态", alias={"BiliVideo status", "总结status", "插件状态"})
+    @filter.command("总结状态", alias={"bvstat", "总结status", "插件状态"})
     async def cmd_status(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_status(self._services, event):
             yield resp
 
-    @filter.command("总结清缓存", alias={"BiliVideo clear", "清缓存"})
+    @filter.command("总结清缓存", alias={"bvclear", "清缓存"})
     async def cmd_clear_cache(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_clear_cache(self._services, event):
             yield resp
 
-    @filter.command("总结模型", alias={"模型列表", "切换模型", "BiliVideo model"})
+    @filter.command("总结模型", alias={"bvmodel", "模型列表", "切换模型"})
     async def cmd_model(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_model(self._services, event):
             yield resp
 
-    @filter.command("B站登录", alias={"bili_login", "哔哩登录", "B站扫码登录", "扫码登录"})
+    @filter.command("B站登录", alias={"bvlogin", "bili_login", "哔哩登录", "B站扫码登录", "扫码登录"})
     async def cmd_login(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_login(self._services, event):
             yield resp
 
-    @filter.command("B站登出", alias={"bili_logout", "哔哩登出"})
+    @filter.command("B站登出", alias={"bvlogout", "bili_logout", "哔哩登出"})
     async def cmd_logout(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_logout(self._services, event):
             yield resp
 
-    @filter.command("总结", alias={"BiliVideo", "视频总结"})
+    @filter.command("总结", alias={"bv", "BiliVideo", "视频总结"})
     async def cmd_summary(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_summary(self._services, event):
             yield resp
@@ -128,17 +128,17 @@ class BiliVideoPlugin(Star):
         async for resp in handlers.handle_latest_video(self._services, event):
             yield resp
 
-    @filter.command("订阅", alias={"subscribe", "关注UP"})
+    @filter.command("订阅", alias={"sub", "subscribe", "关注UP"})
     async def cmd_subscribe(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_subscribe(self._services, event):
             yield resp
 
-    @filter.command("取消订阅", alias={"unsubscribe", "取关UP"})
+    @filter.command("取消订阅", alias={"unsub", "unsubscribe", "取关UP"})
     async def cmd_unsubscribe(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_unsubscribe(self._services, event):
             yield resp
 
-    @filter.command("订阅列表", alias={"sublist", "订阅列表查看"})
+    @filter.command("订阅列表", alias={"sublist", "subs", "订阅列表查看"})
     async def cmd_list_subs(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_list_subscriptions(self._services, event):
             yield resp
@@ -148,22 +148,22 @@ class BiliVideoPlugin(Star):
         async for resp in handlers.handle_check_updates(self._services, event):
             yield resp
 
-    @filter.command("添加推送群", alias={"add_push_group"})
+    @filter.command("添加推送群", alias={"addpg", "add_push_group"})
     async def cmd_add_push_group(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_add_push_group(self._services, event):
             yield resp
 
-    @filter.command("添加推送号", alias={"add_push_user"})
+    @filter.command("添加推送号", alias={"addpu", "add_push_user"})
     async def cmd_add_push_user(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_add_push_user(self._services, event):
             yield resp
 
-    @filter.command("推送列表", alias={"push_list", "推送目标"})
+    @filter.command("推送列表", alias={"pushls", "push_list", "推送目标"})
     async def cmd_list_push(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_list_push(self._services, event):
             yield resp
 
-    @filter.command("移除推送", alias={"remove_push", "删除推送"})
+    @filter.command("移除推送", alias={"rmpush", "remove_push", "删除推送"})
     async def cmd_remove_push(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_remove_push(self._services, event):
             yield resp

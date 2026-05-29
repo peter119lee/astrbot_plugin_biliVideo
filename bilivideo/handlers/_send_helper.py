@@ -46,4 +46,8 @@ async def yield_note_response(
             return
         except RuntimeError as exc:
             services.logger.warning(f"forward fallback: {exc}")
+    if isinstance(rendered, list):
+        for component in rendered:
+            yield event.chain_result([component])  # type: ignore[attr-defined]
+        return
     yield make_chain_results(event, rendered)

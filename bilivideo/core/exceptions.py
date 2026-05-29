@@ -113,10 +113,12 @@ class PartialRenderError(RenderError):
         *,
         generated_paths: list[Path] | None = None,
         failed_pages: list[int] | None = None,
+        page_errors: dict[int, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.generated_paths = generated_paths or []
         self.failed_pages = failed_pages or []
+        self.page_errors = page_errors or {}
 
 
 class CooldownError(BiliVideoError):

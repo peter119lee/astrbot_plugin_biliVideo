@@ -50,6 +50,9 @@ testpaths = ["tests"]
 addopts = "-q --strict-markers"
 asyncio_mode = "auto"
 
+[tool.setuptools.packages.find]
+include = ["bilivideo*"]
+
 [tool.mypy]
 python_version = "3.10"
 strict_optional = true

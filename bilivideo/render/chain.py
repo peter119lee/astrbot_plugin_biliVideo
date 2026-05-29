@@ -19,7 +19,7 @@ from typing import Protocol
 
 from ..core.exceptions import PartialRenderError, RenderError
 from ..core.logging import get_logger
-from .pillow_renderer import PillowRenderer
+from .pillow_renderer import PillowRenderer, check_pillow_ready
 from .wkhtml_renderer import WkHtmlRenderer
 
 logger = get_logger("BiliVideo/RenderChain")
@@ -36,8 +36,8 @@ class _Renderer(Protocol):
     ) -> list[Path]: ...
 
 
-def _wkhtmltopdf_available() -> bool:
-    return bool(shutil.which("wkhtmltoimage") or shutil.which("wkhtmltoimage.exe"))
+def _wkhtmltoimage_path() -> str | None:
+    return shutil.which("wkhtmltoimage") or shutil.which("wkhtmltoimage.exe")
 
 
 class RenderChain:
@@ -45,21 +45,28 @@ class RenderChain:
 
     def __init__(self, *, output_dir: str | Path, image_width: int = 1400) -> None:
         self._backends: list[tuple[str, _Renderer]] = []
+        self._diagnostics: dict[str, str] = {}
 
-        if _wkhtmltopdf_available():
+        wkhtml_path = _wkhtmltoimage_path()
+        if wkhtml_path:
             self._backends.append(
                 ("wkhtmltopdf", WkHtmlRenderer(output_dir=output_dir, image_width=image_width))
             )
+            self._diagnostics["wkhtmltopdf"] = f"ready ({wkhtml_path})"
         else:
+            self._diagnostics["wkhtmltopdf"] = "missing wkhtmltoimage on PATH"
             logger.warning(
                 "wkhtmltoimage not found on PATH; skipping high-fidelity HTML renderer"
             )
 
-        # Pillow is always added as a fallback. It will gracefully error
-        # if the runtime is missing it, and the chain moves on.
-        self._backends.append(
-            ("pillow", PillowRenderer(output_dir=output_dir, image_width=image_width))
-        )
+        pillow_ready, pillow_reason = check_pillow_ready()
+        self._diagnostics["pillow"] = ("ready " if pillow_ready else "unavailable: ") + pillow_reason
+        if pillow_ready:
+            self._backends.append(
+                ("pillow", PillowRenderer(output_dir=output_dir, image_width=image_width))
+            )
+        else:
+            logger.warning(f"Pillow renderer unavailable: {pillow_reason}")
 
         if not self._backends:
             logger.warning("no image renderer backends available; image mode will fall back to text")
@@ -83,6 +90,11 @@ class RenderChain:
                     enable_split=enable_split,
                 )
                 logger.debug(f"renderer '{name}' produced {len(paths)} images")
+                if partial is not None:
+                    logger.warning(
+                        f"discarding partial outputs from an earlier backend because "
+                        f"renderer '{name}' completed successfully"
+                    )
                 return paths
             except PartialRenderError as exc:
                 logger.warning(
@@ -110,3 +122,7 @@ class RenderChain:
     @property
     def available_backends(self) -> list[str]:
         return [name for name, _ in self._backends]
+
+    @property
+    def backend_diagnostics(self) -> dict[str, str]:
+        return dict(self._diagnostics)

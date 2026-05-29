@@ -187,6 +187,8 @@ def _extract_video_url(raw_msg: str, event: object) -> str:
 
 
 async def _canonicalize_video_url(services: BiliVideoServices, video_url: str) -> str:
+    if detect_platform(video_url) != "bilibili":
+        return video_url
     bvid = extract_bvid(video_url)
     if bvid:
         return f"https://www.bilibili.com/video/{bvid}"

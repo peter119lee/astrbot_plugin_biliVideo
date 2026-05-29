@@ -66,3 +66,12 @@ async def test_canonicalize_short_url_failure_returns_empty() -> None:
     services = _Services(None)
 
     assert await _canonicalize_video_url(services, "https://b23.tv/bad") == ""
+
+
+@pytest.mark.asyncio
+async def test_canonicalize_keeps_non_bilibili_url_with_bv_like_text() -> None:
+    services = _Services("https://www.bilibili.com/video/BV1xx411c7mD")
+    url = "https://youtu.be/BV1xx411c7mD"
+
+    assert await _canonicalize_video_url(services, url) == url
+    assert services.http_client.urls == []

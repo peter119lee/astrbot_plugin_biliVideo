@@ -11,8 +11,8 @@ from __future__ import annotations
 import json
 import os
 import re
-from hashlib import sha256
 from collections.abc import Iterable, Mapping
+from hashlib import sha256
 from pathlib import Path
 
 import yt_dlp

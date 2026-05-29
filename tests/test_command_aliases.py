@@ -6,12 +6,12 @@ import ast
 import re
 from pathlib import Path
 
-
 SHORT_ALIAS_RE = re.compile(r"^[a-z][a-z0-9]{1,7}$")
 
 
 def _literal_command_names() -> list[tuple[str, set[str]]]:
-    tree = ast.parse(Path("main.py").read_text(encoding="utf-8"))
+    main_path = Path(__file__).resolve().parents[1] / "main.py"
+    tree = ast.parse(main_path.read_text(encoding="utf-8"))
     commands: list[tuple[str, set[str]]] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.AsyncFunctionDef):
@@ -32,18 +32,22 @@ def _literal_command_names() -> list[tuple[str, set[str]]]:
             command = decorator.args[0].value
             aliases: set[str] = set()
             for keyword in decorator.keywords:
-                if keyword.arg != "alias" or not isinstance(keyword.value, ast.Set):
+                if keyword.arg != "alias":
                     continue
-                for elt in keyword.value.elts:
-                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                        aliases.add(elt.value)
+                value = ast.literal_eval(keyword.value)
+                if isinstance(value, str):
+                    aliases.add(value)
+                else:
+                    aliases.update(item for item in value if isinstance(item, str))
             commands.append((command, aliases))
     return commands
 
 
 def test_each_command_has_short_english_alias() -> None:
+    commands = _literal_command_names()
+    assert len(commands) >= 17
     missing: list[str] = []
-    for command, aliases in _literal_command_names():
+    for command, aliases in commands:
         names = {command, *aliases}
         if not any(SHORT_ALIAS_RE.fullmatch(name) for name in names):
             missing.append(command)

@@ -68,8 +68,13 @@ class BiliVideoServices:
         self.transcriber = BCutTranscriber()
         self.pipeline = TranscriptPipeline(self.downloader, self.transcriber)
 
-        # LLM
-        self.llm: LLMProvider = build_provider(config, astrbot_context=astrbot_context)
+        # LLM (runtime model override takes precedence over the config default)
+        initial_provider_id = (
+            self.runtime_state.get_str("llm_provider_id") or config.llm_provider_id
+        )
+        self.llm: LLMProvider = build_provider(
+            config, astrbot_context=astrbot_context, provider_id=initial_provider_id
+        )
         if isinstance(self.llm, DisabledLLMProvider):
             self.logger.warning(
                 "openai_compatible credentials missing; LLM disabled but plugin startup continues"

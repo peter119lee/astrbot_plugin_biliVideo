@@ -103,6 +103,11 @@ class BiliVideoPlugin(Star):
         async for resp in handlers.handle_clear_cache(self._services, event):
             yield resp
 
+    @filter.command("总结模型", alias={"模型列表", "切换模型", "BiliVideo model"})
+    async def cmd_model(self, event: AstrMessageEvent) -> AsyncIterator[object]:
+        async for resp in handlers.handle_model(self._services, event):
+            yield resp
+
     @filter.command("B站登录", alias={"bili_login", "哔哩登录", "B站扫码登录", "扫码登录"})
     async def cmd_login(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_login(self._services, event):

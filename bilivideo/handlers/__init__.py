@@ -8,6 +8,7 @@ to the matching handler.
 from .auto_detect import handle_auto_detect
 from .help import handle_help
 from .login import handle_login, handle_logout
+from .model import handle_model
 from .push_target import (
     handle_add_push_group,
     handle_add_push_user,
@@ -36,6 +37,7 @@ __all__ = [
     "handle_list_subscriptions",
     "handle_login",
     "handle_logout",
+    "handle_model",
     "handle_remove_push",
     "handle_status",
     "handle_subscribe",

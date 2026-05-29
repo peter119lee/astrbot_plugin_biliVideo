@@ -31,7 +31,9 @@ class DisabledLLMProvider:
         raise LLMError("LLM provider disabled", user_message=self.user_message)
 
 
-def build_provider(config: PluginConfig, *, astrbot_context: object | None) -> LLMProvider:
+def build_provider(
+    config: PluginConfig, *, astrbot_context: object | None, provider_id: str = ""
+) -> LLMProvider:
     """Return a concrete provider instance based on the config."""
 
     if config.is_openai_compatible:
@@ -50,4 +52,4 @@ def build_provider(config: PluginConfig, *, astrbot_context: object | None) -> L
 
     from .astrbot_provider import AstrbotProvider
 
-    return AstrbotProvider(astrbot_context)
+    return AstrbotProvider(astrbot_context, provider_id=provider_id)

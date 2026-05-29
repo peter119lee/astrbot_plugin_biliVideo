@@ -95,6 +95,7 @@ class PluginConfig:
 
     # llm ----------------------------------------------------------------
     llm_provider: str = "astrbot"
+    llm_provider_id: str = ""
     llm_api_base: str = ""
     llm_api_key: str = ""
     llm_model: str = "gpt-4o-mini"
@@ -107,6 +108,7 @@ class PluginConfig:
     max_note_length: int = 3000
     prefer_subtitle: bool = True
     download_quality: str = "fast"
+    enable_multi_platform: bool = False
     subtitle_langs: tuple[str, ...] = ("zh-Hans", "zh", "zh-CN", "ai-zh", "en", "en-US")
 
     # rendering ----------------------------------------------------------
@@ -164,6 +166,7 @@ class PluginConfig:
             processing_timeout=_coerce_int(raw.get("processing_timeout"), 300, lo=60, hi=1800),
             user_cooldown_seconds=_coerce_int(raw.get("user_cooldown_seconds"), 8, lo=0, hi=600),
             llm_provider=_coerce_str(raw.get("llm_provider"), "astrbot", options=LLM_PROVIDERS),
+            llm_provider_id=_coerce_str(raw.get("llm_provider_id"), ""),
             llm_api_base=_coerce_url_base(raw.get("llm_api_base")),
             llm_api_key=_coerce_str(raw.get("llm_api_key"), ""),
             llm_model=_coerce_str(raw.get("llm_model"), "gpt-4o-mini"),
@@ -176,6 +179,7 @@ class PluginConfig:
             download_quality=_coerce_str(
                 raw.get("download_quality"), "fast", options=tuple(QUALITY_TO_KBPS.keys())
             ),
+            enable_multi_platform=_coerce_bool(raw.get("enable_multi_platform"), False),
             subtitle_langs=_split_csv(raw.get("subtitle_langs"))
             or ("zh-Hans", "zh", "zh-CN", "ai-zh", "en", "en-US"),
             output_image=_coerce_bool(raw.get("output_image"), True),

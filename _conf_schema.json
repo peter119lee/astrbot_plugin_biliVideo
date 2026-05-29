@@ -28,6 +28,12 @@
     "description": "[LLM] 提供者",
     "hint": "astrbot=AstrBot 内置 / openai_compatible=自定义 OpenAI 兼容 API"
   },
+  "llm_provider_id": {
+    "type": "string",
+    "default": "",
+    "description": "[LLM] 指定内置模型 ID",
+    "hint": "仅 astrbot 模式生效。留空=用 AstrBot 当前模型；填 provider ID 可指定。用 /总结模型 查看可用 ID 并切换"
+  },
   "llm_api_base": {
     "type": "string",
     "default": "",
@@ -97,6 +103,12 @@
     "options": ["fast", "medium", "slow"],
     "description": "[总结] 音频质量",
     "hint": "fast=32k / medium=64k / slow=128k"
+  },
+  "enable_multi_platform": {
+    "type": "bool",
+    "default": false,
+    "description": "[总结] 实验:多平台支持",
+    "hint": "开启后 /总结 支持 YouTube/抖音(yt-dlp 下载，字幕优先)。非中文音频的 ASR 质量不保证，实验性功能"
   },
   "output_image": {
     "type": "bool",

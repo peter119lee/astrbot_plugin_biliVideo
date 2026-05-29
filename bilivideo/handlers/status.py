@@ -26,11 +26,13 @@ async def handle_status(services: BiliVideoServices, event: object) -> AsyncIter
     backends = ", ".join(services.renderer.available_backends) or "无 (将回退纯文本)"
     wkhtml = "✅" if shutil.which("wkhtmltoimage") or shutil.which("wkhtmltoimage.exe") else "❌"
     ffmpeg = "✅" if shutil.which("ffmpeg") or shutil.which("ffmpeg.exe") else "❌"
-    llm_state = (
-        "未配置"
-        if isinstance(services.llm, DisabledLLMProvider)
-        else (cfg.llm_model if cfg.is_openai_compatible else "astrbot 内置")
-    )
+    if isinstance(services.llm, DisabledLLMProvider):
+        llm_state = "未配置"
+    elif cfg.is_openai_compatible:
+        llm_state = cfg.llm_model
+    else:
+        pinned = getattr(services.llm, "provider_id", "") or ""
+        llm_state = f"astrbot:{pinned}" if pinned else "astrbot 当前模型"
 
     body = (
         "🩺 biliVideo 状态\n"
@@ -41,6 +43,7 @@ async def handle_status(services: BiliVideoServices, event: object) -> AsyncIter
         f"🎨 渲染后端: {backends}\n"
         f"🛠 系统工具: ffmpeg {ffmpeg}  wkhtmltopdf {wkhtml}\n"
         f"🔁 自动识别: {'开' if services.enable_miniapp_detect else '关'}\n"
+        f"🌐 多平台: {'on (实验)' if cfg.enable_multi_platform else 'off'}\n"
         f"📡 定时检查: {scheduler_state} (间隔 {cfg.check_interval_minutes} 分钟)\n"
         f"📋 推送目标: {len(targets)} 个\n"
         f"🗄  视频信息缓存: {video_info_cache_size()} 条\n"

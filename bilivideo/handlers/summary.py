@@ -45,8 +45,11 @@ async def handle_summary(services: BiliVideoServices, event: object) -> AsyncIte
         )
         return
 
-    if detect_platform(video_url) != "bilibili":
-        yield event.plain_result("❌ 目前仅支持B站视频链接")  # type: ignore[attr-defined]
+    if not _is_platform_supported(video_url, enable_multi_platform=services.config.enable_multi_platform):
+        if services.config.enable_multi_platform:
+            yield event.plain_result("❌ 仅支持 B站 / YouTube / 抖音 视频链接")  # type: ignore[attr-defined]
+        else:
+            yield event.plain_result("❌ 目前仅支持B站视频链接")  # type: ignore[attr-defined]
         return
 
     video_url = await _canonicalize_video_url(services, video_url)
@@ -124,6 +127,13 @@ async def handle_latest_video(services: BiliVideoServices, event: object) -> Asy
 
 
 # ──────────────────────────── helpers ──────────────────────────────
+
+
+def _is_platform_supported(video_url: str, *, enable_multi_platform: bool) -> bool:
+    platform = detect_platform(video_url)
+    if platform == "bilibili":
+        return True
+    return bool(enable_multi_platform and platform in ("youtube", "douyin"))
 
 
 def _extract_video_url(raw_msg: str, event: object) -> str:

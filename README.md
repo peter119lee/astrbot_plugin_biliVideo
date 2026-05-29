@@ -124,6 +124,14 @@ chmod +x /usr/local/bin/wkhtmltoimage
 | `/总结 <链接 \| BV>` | 为单个视频生成 AI 总结 |
 | `/最新视频 <UID \| 空间链接 \| 昵称>` | 获取 UP 主最新视频并总结 |
 
+### 管理
+
+| 命令 | 说明 |
+| --- | --- |
+| `/总结状态` | 查看版本 / 登录 / LLM / 渲染后端 / 缓存等 |
+| `/总结清缓存` | 清除视频信息 + WBI + 总结结果缓存 |
+| `/总结模型 [provider ID]` | 列出 / 切换 AstrBot 内置对话模型(仅 astrbot 模式) |
+
 ### 登录
 
 | 命令 | 说明 |
@@ -215,6 +223,8 @@ AI 自动组合调用两个工具:`bilibili_search_list` 与 `bilibili_search_do
 | `enable_summary` | `true` | 末尾添加 AI 总结段落 |
 | `download_quality` | `fast` | `fast`(32k) / `medium`(64k) / `slow`(128k) |
 | `prefer_subtitle` | `true` | 优先平台字幕,无字幕才下载音频 |
+| `enable_multi_platform` | `false` | 🧪 实验:`/总结` 支持 YouTube/抖音(yt-dlp,字幕优先;非中文 ASR 质量不保证) |
+| `llm_provider_id` | `""` | 指定 AstrBot 内置模型 ID(留空=当前模型;用 `/总结模型` 查看可用 ID) |
 | `enable_auto_push` | `false` | 启用定时推送新视频 |
 | `auto_push_summary` | `true` | 推送新视频时是否附带 AI 总结 |
 | `check_interval_minutes` | `600` | 定时检查间隔 |

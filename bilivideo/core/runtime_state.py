@@ -33,6 +33,14 @@ class RuntimeState:
         self._data[key] = value
         self._persist()
 
+    def get_str(self, key: str) -> str | None:
+        value = self._data.get(key)
+        return value if isinstance(value, str) else None
+
+    def set_str(self, key: str, value: str) -> None:
+        self._data[key] = value
+        self._persist()
+
     def _load(self) -> None:
         if not self._path.exists():
             return

@@ -114,7 +114,7 @@ class YtDlpDownloader:
             title=str(info.get("title", "")),
             duration=float(info.get("duration", 0) or 0),
             cover_url=info.get("thumbnail"),
-            platform="bilibili",
+            platform=str(info.get("extractor_key") or info.get("extractor") or "bilibili").lower(),
             video_id=str(video_id),
             raw_info=dict(info),
         )

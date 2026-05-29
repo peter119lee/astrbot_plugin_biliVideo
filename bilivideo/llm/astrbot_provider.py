@@ -16,13 +16,22 @@ class AstrbotProvider:
     selected in the AstrBot dashboard.
     """
 
-    def __init__(self, astrbot_context: object | None) -> None:
+    def __init__(self, astrbot_context: object | None, provider_id: str = "") -> None:
         self._context = astrbot_context
+        self.provider_id = provider_id
 
     async def chat(self, prompt: str, *, session_id: str | None = None) -> str:
         if self._context is None or not hasattr(self._context, "get_using_provider"):
             raise LLMError("AstrBot context unavailable")
-        provider = self._context.get_using_provider()
+        if self.provider_id:
+            provider = self._context.get_provider_by_id(self.provider_id)
+            if provider is None:
+                logger.warning(
+                    f"provider id '{self.provider_id}' not found; using AstrBot current provider"
+                )
+                provider = self._context.get_using_provider()
+        else:
+            provider = self._context.get_using_provider()
         if provider is None:
             raise LLMError("AstrBot has no LLM provider configured")
         try:

@@ -7,6 +7,7 @@ Cleaned-up version of the original `BcutTranscriber` that emits typed
 from __future__ import annotations
 
 import json
+import threading
 import time
 from typing import Any
 
@@ -42,12 +43,14 @@ class BCutTranscriber:
     callers can run us via `loop.run_in_executor`.
     """
 
-    def transcribe(self, file_path: str) -> TranscriptResult:
+    def transcribe(
+        self, file_path: str, cancel_event: threading.Event | None = None
+    ) -> TranscriptResult:
         try:
             with requests.Session() as session:
                 payload = self._upload(session, file_path)
                 task_id = self._create_task(session, payload["download_url"])
-                data = self._await_result(session, task_id)
+                data = self._await_result(session, task_id, cancel_event)
         except (requests.RequestException, json.JSONDecodeError, KeyError) as exc:
             raise TranscriptionError(f"BCut ASR failed: {exc}") from exc
 
@@ -137,8 +140,15 @@ class BCutTranscriber:
         )
         return payload["task_id"]
 
-    def _await_result(self, session: requests.Session, task_id: str) -> dict[str, Any]:
+    def _await_result(
+        self,
+        session: requests.Session,
+        task_id: str,
+        cancel_event: threading.Event | None = None,
+    ) -> dict[str, Any]:
         for attempt in range(POLL_MAX_TRIES):
+            if cancel_event is not None and cancel_event.is_set():
+                raise TranscriptionError("BCut transcription cancelled")
             resp = session.get(
                 ENDPOINT_RESULT,
                 params={"model_id": 7, "task_id": task_id},

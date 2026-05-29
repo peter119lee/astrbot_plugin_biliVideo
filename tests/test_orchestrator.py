@@ -171,3 +171,26 @@ async def test_truncation_when_oversized(monkeypatch) -> None:
     assert "内容过长提示" in result.markdown
     # original length was ~1200; truncated to ~500 + tail message (~150)
     assert len(result.markdown) < 1100
+
+
+@pytest.mark.asyncio
+async def test_summary_is_cached_per_bvid(monkeypatch) -> None:
+    config = PluginConfig.from_mapping({})
+    info = VideoInfo(bvid="BV1xx411c7mD", title="t", owner_name="UP")
+    _patch_get_video_info(monkeypatch, info)
+
+    pipeline = _StubPipeline(_make_pipeline_output())
+    llm = _StubLLM()
+    orch = SummaryOrchestrator(config=config, llm=llm, pipeline=pipeline, http_client=_StubHTTP())  # type: ignore[arg-type]
+
+    url = "https://www.bilibili.com/video/BV1xx411c7mD"
+    first = await orch.generate(url)
+    second = await orch.generate(url)
+
+    assert second is first  # second request served straight from cache
+    assert len(llm.calls) == 1  # LLM invoked only once
+    assert len(pipeline.cleanup_calls) == 1  # pipeline ran only once
+
+    await orch.clear_cache()
+    await orch.generate(url)
+    assert len(llm.calls) == 2  # regenerated after the cache was cleared

@@ -17,7 +17,9 @@ from dataclasses import dataclass
 
 from ..api.client import BilibiliHTTPClient
 from ..api.endpoints import get_video_info
+from ..cache.lru_ttl import LRUTTLCache
 from ..core.config import PluginConfig
+from ..core.constants import SUMMARY_CACHE_MAX, SUMMARY_CACHE_TTL_SECONDS
 from ..core.exceptions import BiliVideoError
 from ..core.logging import get_logger
 from ..core.types import VideoInfo
@@ -52,6 +54,12 @@ class SummaryOrchestrator:
         self._llm = llm
         self._pipeline = pipeline
         self._http = http_client
+        self._cache: LRUTTLCache[str, NoteResult] = LRUTTLCache(
+            max_size=SUMMARY_CACHE_MAX, ttl_seconds=SUMMARY_CACHE_TTL_SECONDS
+        )
+
+    async def clear_cache(self) -> None:
+        await self._cache.clear()
 
     async def generate(self, video_url: str) -> NoteResult:
         """Run the pipeline under the configured processing timeout."""
@@ -70,6 +78,11 @@ class SummaryOrchestrator:
 
     async def _generate(self, video_url: str) -> NoteResult:
         bvid = extract_bvid(video_url)
+        if bvid:
+            cached = await self._cache.get(bvid)
+            if cached is not None:
+                logger.info(f"summary cache hit for {bvid}")
+                return cached
         info: VideoInfo | None = None
         if bvid:
             try:
@@ -124,8 +137,11 @@ class SummaryOrchestrator:
 
         markdown = smart_truncate(markdown, self._config.max_note_length)
 
-        return NoteResult(
+        result = NoteResult(
             markdown=markdown,
             video_info=info,
             used_subtitle=output.audio is None,
         )
+        if bvid:
+            await self._cache.set(bvid, result)
+        return result

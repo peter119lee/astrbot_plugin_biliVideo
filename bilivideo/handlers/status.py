@@ -56,6 +56,7 @@ async def handle_clear_cache(services: BiliVideoServices, event: object) -> Asyn
     before = video_info_cache_size()
     await clear_video_info_cache()
     await clear_wbi_cache()
+    await services.orchestrator.clear_cache()
     yield event.plain_result(  # type: ignore[attr-defined]
-        f"🧹 已清除缓存(视频信息 {before} 条 + WBI 密钥)"
+        f"🧹 已清除缓存(视频信息 {before} 条 + WBI 密钥 + 总结结果)"
     )

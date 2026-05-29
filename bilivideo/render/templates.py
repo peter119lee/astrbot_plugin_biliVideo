@@ -75,6 +75,68 @@ def get_logo_base64() -> str:
     return _logo_cache
 
 
+# Risky tags whose inner content must also be discarded.
+_RISKY_PAIRED_TAGS = ("script", "style", "iframe", "object")
+# Risky tags that are stripped (tag only) wherever they appear.
+_RISKY_TAGS = (
+    "iframe",
+    "object",
+    "embed",
+    "link",
+    "meta",
+    "base",
+    "form",
+    "frame",
+    "frameset",
+)
+# Schemes that can execute when placed in an href/src attribute.
+_DANGEROUS_SCHEME_RE = re.compile(r"(?i)\b(?:java|vb)script:")
+# Inline event handlers: on<word>= followed by a quoted or bare value.
+_EVENT_HANDLER_RE = re.compile(
+    r"""(?ix)            # case-insensitive, verbose
+    \s+on\w+            # the on<event> attribute name
+    \s*=\s*
+    (?:"[^"]*"          # double-quoted value
+       |'[^']*'         # single-quoted value
+       |[^\s>]+)        # unquoted value
+    """
+)
+
+
+def sanitize_html(html: str) -> str:
+    """Defensively strip dangerous constructs from rendered HTML.
+
+    Uses stdlib `re` only as defense-in-depth for the wkhtml renderer:
+    LLM-authored Markdown may embed raw HTML that python-markdown passes
+    through unescaped. We drop `<script>`/`<style>` blocks (with content),
+    a set of risky tags, inline `on*` event handlers, and `javascript:`/
+    `vbscript:` URIs, while leaving ordinary formatting tags untouched.
+    """
+
+    # 1. Remove paired risky tags together with their inner content.
+    for tag in _RISKY_PAIRED_TAGS:
+        html = re.sub(
+            rf"<{tag}\b[^>]*>.*?</{tag}\s*>",
+            "",
+            html,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        # Also drop any unmatched opening/closing tag left behind.
+        html = re.sub(rf"</?{tag}\b[^>]*>", "", html, flags=re.IGNORECASE)
+
+    # 2. Strip remaining risky tags (opening, closing, self-closing).
+    for tag in _RISKY_TAGS:
+        html = re.sub(rf"</?{tag}\b[^>]*/?>", "", html, flags=re.IGNORECASE)
+
+    # 3. Remove inline event-handler attributes (onclick, onerror, ...).
+    html = _EVENT_HANDLER_RE.sub("", html)
+
+    # 4. Neutralize javascript:/vbscript: URIs in any attribute value.
+    html = _DANGEROUS_SCHEME_RE.sub("unsafe:", html)
+
+    return html
+
+
 def highlight_timestamps(html: str) -> str:
     """Wrap stand-alone timestamps in pill-style spans."""
 

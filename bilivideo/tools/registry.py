@@ -277,18 +277,20 @@ async def _safe_send_text(astrbot_context: object, umo: str, text: str) -> None:
         logger.warning(f"message dispatch failed: {exc}")
 
 
-async def _send_combined_summary(
-    *,
-    services: BiliVideoServices,
-    astrbot_context: object,
-    event: object,
-    successful: list,
-) -> None:
+def build_combined_summary_prompt(successful: list) -> str:
+    """Build the LLM summary prompt for one or more transcribed videos.
+
+    `successful` items expose `.info` (may be None; when present has `.title`),
+    `.bvid`, and `.transcript`. Each video is rendered as a 1-indexed
+    `【视频 N】` block joined by blank lines, then embedded in the structured
+    summary instructions.
+    """
+
     transcript_text = "\n\n".join(
         f"【视频 {i + 1}】{v.info.title if v.info else v.bvid}\n{v.transcript}"
         for i, v in enumerate(successful)
     )
-    summary_prompt = (
+    return (
         "请为以下B站视频内容生成一份详细的结构化总结。\n\n"
         "要求:\n"
         "1. 使用 Markdown 格式\n"
@@ -297,6 +299,16 @@ async def _send_combined_summary(
         "4. 如果是多个视频,分别总结并加上视频标题\n\n"
         f"{transcript_text}"
     )
+
+
+async def _send_combined_summary(
+    *,
+    services: BiliVideoServices,
+    astrbot_context: object,
+    event: object,
+    successful: list,
+) -> None:
+    summary_prompt = build_combined_summary_prompt(successful)
     note_text = await services.llm.chat(summary_prompt, session_id="BiliVideo_search")
 
     from ..handlers._render_helper import render_note_components  # avoid circular import at top

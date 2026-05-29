@@ -13,6 +13,7 @@ from .templates import (
     build_full_html,
     extract_title,
     highlight_timestamps,
+    sanitize_html,
     wrap_chapters_in_cards,
 )
 
@@ -103,6 +104,7 @@ class WkHtmlRenderer:
             markdown_text,
             extensions=["tables", "fenced_code", "nl2br"],
         )
+        html_body = sanitize_html(html_body)
         html_body = highlight_timestamps(html_body)
         title_text, html_body = extract_title(html_body)
         if page_label:

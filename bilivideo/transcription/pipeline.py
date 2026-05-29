@@ -11,6 +11,7 @@ Strategy:
 from __future__ import annotations
 
 import asyncio
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -69,9 +70,14 @@ class TranscriptPipeline:
             )
 
         if transcript is None or not transcript.has_content:
-            transcript = await loop.run_in_executor(
-                None, self._transcriber.transcribe, audio_meta.file_path
-            )
+            cancel_event = threading.Event()
+            try:
+                transcript = await loop.run_in_executor(
+                    None, self._transcriber.transcribe, audio_meta.file_path, cancel_event
+                )
+            except asyncio.CancelledError:
+                cancel_event.set()
+                raise
 
         if transcript is None or not transcript.has_content:
             raise TranscriptionError("subtitle and BCut both yielded empty transcripts")

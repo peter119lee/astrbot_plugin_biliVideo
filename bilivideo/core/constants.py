@@ -83,3 +83,8 @@ ACCESS_MODES: Final[tuple[str, ...]] = ("blacklist", "whitelist")
 WBI_CACHE_TTL_SECONDS: Final[int] = 86_400  # 24h
 VIDEO_INFO_CACHE_TTL_SECONDS: Final[int] = 600  # 10min
 VIDEO_INFO_CACHE_MAX: Final[int] = 256
+
+# A video's generated summary is stable, so it can be cached far longer than
+# its mutable metadata. Avoids re-running download+ASR+LLM for repeat requests.
+SUMMARY_CACHE_TTL_SECONDS: Final[int] = 21_600  # 6h
+SUMMARY_CACHE_MAX: Final[int] = 64

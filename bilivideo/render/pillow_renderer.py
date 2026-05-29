@@ -8,8 +8,8 @@ version, but still readable and unifrom.
 
 Notable simplifications vs. the HTML renderer:
   * No background blur, gradients, or radial glows
-  * No embedded fonts (relies on a system CJK font; we probe for the
-    first one that exists)
+  * Uses the best font we can discover. A CJK font is preferred, but
+    missing CJK fonts should not prevent image output.
   * No code blocks / tables (rendered as plain monospaced lines)
   * Uses solid color cards with a left accent strip
 """
@@ -44,6 +44,8 @@ _CJK_FONT_CANDIDATES: tuple[str, ...] = (
     "/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc",
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.otf",
+    "/usr/share/fonts/truetype/arphic/uming.ttc",
     # macOS
     "/System/Library/Fonts/PingFang.ttc",
     "/Library/Fonts/Arial Unicode.ttf",
@@ -51,6 +53,18 @@ _CJK_FONT_CANDIDATES: tuple[str, ...] = (
     r"C:\Windows\Fonts\msyh.ttc",
     r"C:\Windows\Fonts\simhei.ttf",
     r"C:\Windows\Fonts\simsun.ttc",
+    "/mnt/c/Windows/Fonts/msyh.ttc",
+    "/mnt/c/Windows/Fonts/simhei.ttf",
+    "/mnt/c/Windows/Fonts/simsun.ttc",
+)
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_FALLBACK_FONT_CANDIDATES: tuple[str, ...] = (
+    str(_REPO_ROOT / "fonts" / "JetBrainsMono-Light.ttf"),
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    r"C:\Windows\Fonts\arial.ttf",
+    "/mnt/c/Windows/Fonts/arial.ttf",
 )
 
 
@@ -61,23 +75,49 @@ def _find_cjk_font() -> str | None:
     return None
 
 
+def _find_fallback_font() -> str | None:
+    for candidate in _FALLBACK_FONT_CANDIDATES:
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
 def check_pillow_ready() -> tuple[bool, str]:
-    """Return whether Pillow can render CJK text in this environment."""
+    """Return whether Pillow can produce images in this environment."""
 
     try:
-        from PIL import Image, ImageDraw, ImageFont  # noqa: F401
+        from PIL import ImageFont
     except ImportError as exc:
         return False, f"Pillow not installed: {exc}"
 
     font_path = _find_cjk_font()
-    if font_path is None:
-        return False, "no CJK font discovered; install wqy-zenhei or noto-cjk"
+    if font_path is not None:
+        try:
+            ImageFont.truetype(font_path, 14)
+        except Exception as exc:
+            return False, f"CJK font cannot be loaded: {font_path} ({exc})"
+        return True, f"font={font_path}"
 
+    fallback_path = _find_fallback_font()
+    if fallback_path is None:
+        return True, "ready with Pillow default font; no CJK font discovered"
     try:
-        ImageFont.truetype(font_path, 14)
+        ImageFont.truetype(fallback_path, 14)
     except Exception as exc:
-        return False, f"CJK font cannot be loaded: {font_path} ({exc})"
-    return True, f"font={font_path}"
+        return False, f"fallback font cannot be loaded: {fallback_path} ({exc})"
+    return True, f"fallback_font={fallback_path}; no CJK font discovered"
+
+
+def _load_font(size: int):
+    from PIL import ImageFont
+
+    font_path = _find_cjk_font() or _find_fallback_font()
+    if font_path is not None:
+        try:
+            return ImageFont.truetype(font_path, size), font_path
+        except Exception as exc:
+            logger.warning(f"font load failed ({font_path}): {exc}; using Pillow default")
+    return ImageFont.load_default(), "Pillow default"
 
 
 # ──────────────────────── markdown parsing ────────────────────────
@@ -221,16 +261,10 @@ class PillowRenderer:
         if page_label:
             title_text = f"{title_text} {page_label}"
 
-        font_path = _find_cjk_font()
-        if font_path is None:
-            raise RenderError(
-                "no CJK font discovered for Pillow renderer; install wqy-zenhei or noto-cjk"
-            )
-
-        f_title = ImageFont.truetype(font_path, 26)
-        f_h2 = ImageFont.truetype(font_path, 19)
-        f_h3 = ImageFont.truetype(font_path, 16)
-        f_body = ImageFont.truetype(font_path, 14)
+        f_title, font_path = _load_font(26)
+        f_h2, _ = _load_font(19)
+        f_h3, _ = _load_font(16)
+        f_body, _ = _load_font(14)
 
         # split body into cards by h2
         cards = self._group_into_cards(body_blocks)

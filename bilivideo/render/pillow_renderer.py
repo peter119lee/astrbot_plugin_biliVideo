@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import os
 import re
+import urllib.request
 from collections.abc import Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -66,9 +68,21 @@ _FALLBACK_FONT_CANDIDATES: tuple[str, ...] = (
     r"C:\Windows\Fonts\arial.ttf",
     "/mnt/c/Windows/Fonts/arial.ttf",
 )
+_BUNDLED_CJK_FONT_NAME = "NotoSansCJKsc-Regular.otf"
+_BUNDLED_CJK_FONT_URLS: tuple[str, ...] = (
+    "https://raw.githubusercontent.com/notofonts/noto-cjk/main/"
+    "Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf",
+    "https://github.com/notofonts/noto-cjk/raw/main/"
+    "Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf",
+)
+_MIN_CJK_FONT_BYTES = 1_000_000
 
 
-def _find_cjk_font() -> str | None:
+def _find_cjk_font(extra_dirs: Sequence[str | Path] = ()) -> str | None:
+    for directory in extra_dirs:
+        path = Path(directory) / _BUNDLED_CJK_FONT_NAME
+        if path.exists() and path.stat().st_size >= _MIN_CJK_FONT_BYTES:
+            return str(path)
     for candidate in _CJK_FONT_CANDIDATES:
         if os.path.exists(candidate):
             return candidate
@@ -82,7 +96,40 @@ def _find_fallback_font() -> str | None:
     return None
 
 
-def check_pillow_ready() -> tuple[bool, str]:
+def _ensure_cached_cjk_font(font_cache_dir: str | Path | None) -> str | None:
+    if font_cache_dir is None:
+        return None
+    cache_dir = Path(font_cache_dir)
+    path = cache_dir / _BUNDLED_CJK_FONT_NAME
+    if path.exists() and path.stat().st_size >= _MIN_CJK_FONT_BYTES:
+        return str(path)
+
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.warning(f"font cache directory unavailable: {exc}")
+        return None
+
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    for url in _BUNDLED_CJK_FONT_URLS:
+        try:
+            logger.info(f"downloading fallback CJK font: {url}")
+            with urllib.request.urlopen(url, timeout=20) as response:
+                data = response.read()
+            if len(data) < _MIN_CJK_FONT_BYTES:
+                raise OSError(f"downloaded font is too small: {len(data)} bytes")
+            tmp_path.write_bytes(data)
+            tmp_path.replace(path)
+            logger.info(f"cached fallback CJK font at {path}")
+            return str(path)
+        except Exception as exc:
+            logger.warning(f"fallback CJK font download failed ({url}): {exc}")
+            with suppress(OSError):
+                tmp_path.unlink(missing_ok=True)
+    return None
+
+
+def check_pillow_ready(font_cache_dir: str | Path | None = None) -> tuple[bool, str]:
     """Return whether Pillow can produce images in this environment."""
 
     try:
@@ -90,7 +137,10 @@ def check_pillow_ready() -> tuple[bool, str]:
     except ImportError as exc:
         return False, f"Pillow not installed: {exc}"
 
-    font_path = _find_cjk_font()
+    extra_dirs = (font_cache_dir,) if font_cache_dir is not None else ()
+    font_path = _find_cjk_font(extra_dirs)
+    if font_path is None:
+        font_path = _ensure_cached_cjk_font(font_cache_dir)
     if font_path is not None:
         try:
             ImageFont.truetype(font_path, 14)
@@ -108,10 +158,15 @@ def check_pillow_ready() -> tuple[bool, str]:
     return True, f"fallback_font={fallback_path}; no CJK font discovered"
 
 
-def _load_font(size: int):
+def _load_font(size: int, font_cache_dir: str | Path | None = None):
     from PIL import ImageFont
 
-    font_path = _find_cjk_font() or _find_fallback_font()
+    extra_dirs = (font_cache_dir,) if font_cache_dir is not None else ()
+    font_path = (
+        _find_cjk_font(extra_dirs)
+        or _ensure_cached_cjk_font(font_cache_dir)
+        or _find_fallback_font()
+    )
     if font_path is not None:
         try:
             return ImageFont.truetype(font_path, size), font_path
@@ -185,10 +240,17 @@ class PillowRenderer:
     CARD_PADDING = 24
     CARD_GAP = 18
 
-    def __init__(self, *, output_dir: str | Path, image_width: int = 1400) -> None:
+    def __init__(
+        self,
+        *,
+        output_dir: str | Path,
+        image_width: int = 1400,
+        font_cache_dir: str | Path | None = None,
+    ) -> None:
         self._output_dir = Path(output_dir)
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._width = image_width
+        self._font_cache_dir = Path(font_cache_dir) if font_cache_dir is not None else None
 
     # ------------------------------------------------------------------
     # public API
@@ -261,10 +323,10 @@ class PillowRenderer:
         if page_label:
             title_text = f"{title_text} {page_label}"
 
-        f_title, font_path = _load_font(26)
-        f_h2, _ = _load_font(19)
-        f_h3, _ = _load_font(16)
-        f_body, _ = _load_font(14)
+        f_title, font_path = _load_font(26, self._font_cache_dir)
+        f_h2, _ = _load_font(19, self._font_cache_dir)
+        f_h3, _ = _load_font(16, self._font_cache_dir)
+        f_body, _ = _load_font(14, self._font_cache_dir)
 
         # split body into cards by h2
         cards = self._group_into_cards(body_blocks)

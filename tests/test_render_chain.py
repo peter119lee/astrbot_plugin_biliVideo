@@ -182,3 +182,13 @@ def test_chain_reports_pillow_ready(tmp_path) -> None:
         chain = RenderChain(output_dir=str(tmp_path))
     assert chain.available_backends == ["pillow"]
     assert chain.backend_diagnostics["pillow"] == "ready font=/tmp/font.ttc"
+
+
+def test_chain_checks_pillow_with_plugin_font_cache(tmp_path) -> None:
+    with (
+        patch("bilivideo.render.chain._wkhtmltoimage_path", return_value=None),
+        patch("bilivideo.render.chain.check_pillow_ready", return_value=(False, "nope")) as check,
+    ):
+        RenderChain(output_dir=tmp_path / "images")
+
+    check.assert_called_once_with(tmp_path / "fonts")

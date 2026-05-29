@@ -60,7 +60,7 @@ LONG_URL_REGEX: Final[re.Pattern[str]] = re.compile(
     r"https?://(?:www\.)?bilibili\.com/video/[A-Za-z0-9/?=&_.\-]+"
 )
 SHORT_URL_REGEX: Final[re.Pattern[str]] = re.compile(
-    r"https?://(?:b23\.tv|bili2233\.cn|bili22\.cn|bili23\.cn|bili33\.cn)/\S+",
+    r"https?://(?:b23\.tv|bili2233\.cn|bili22\.cn|bili23\.cn|bili33\.cn)/\S{1,256}",
     re.IGNORECASE,
 )
 QQDOC_URL_REGEX: Final[re.Pattern[str]] = re.compile(r'"qqdocurl"\s*:\s*"(https?://[^"]+)"')

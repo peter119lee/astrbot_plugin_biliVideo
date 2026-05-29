@@ -43,6 +43,10 @@ _KEY_CACHE: LRUTTLCache[str, str] = LRUTTLCache(max_size=2, ttl_seconds=WBI_CACH
 _KEY_CACHE_KEY = "mixin_key"
 
 
+async def clear_wbi_cache() -> None:
+    await _KEY_CACHE.clear()
+
+
 def _derive_mixin_key(img_key: str, sub_key: str) -> str:
     orig = img_key + sub_key
     return "".join(orig[i] for i in _MIXIN_TABLE)[:32]

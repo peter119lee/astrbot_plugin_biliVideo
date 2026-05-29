@@ -9,6 +9,7 @@ every render.
 from __future__ import annotations
 
 import base64
+import html
 import re
 from pathlib import Path
 
@@ -215,7 +216,7 @@ def build_full_html(
     return (
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
         f"<style>{fonts}{css}</style></head><body>"
-        f"<div class=\"header\"><h1>{title_text}</h1><div class=\"header-line\"></div></div>"
+        f"<div class=\"header\"><h1>{html.escape(title_text)}</h1><div class=\"header-line\"></div></div>"
         f"<div class=\"content\">{body_html}</div>"
         "<div class=\"footer\">"
         "<div class=\"ftxt\">Powered by <span class=\"br\">biliVideo</span> · AI 视频总结助手</div>"

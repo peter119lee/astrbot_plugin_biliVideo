@@ -12,6 +12,7 @@ specific user-facing errors (`BiliVideoError.user_message`).
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 from ..api.client import BilibiliHTTPClient
@@ -53,6 +54,21 @@ class SummaryOrchestrator:
         self._http = http_client
 
     async def generate(self, video_url: str) -> NoteResult:
+        """Run the pipeline under the configured processing timeout."""
+
+        timeout = self._config.processing_timeout
+        if timeout and timeout > 0:
+            try:
+                return await asyncio.wait_for(self._generate(video_url), timeout=timeout)
+            except asyncio.TimeoutError as exc:
+                logger.warning(f"summary generation timed out after {timeout}s: {video_url}")
+                raise BiliVideoError(
+                    f"processing timeout after {timeout}s",
+                    user_message="❌ 处理超时,请稍后重试或换一个视频",
+                ) from exc
+        return await self._generate(video_url)
+
+    async def _generate(self, video_url: str) -> NoteResult:
         bvid = extract_bvid(video_url)
         info: VideoInfo | None = None
         if bvid:

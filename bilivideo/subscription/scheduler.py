@@ -48,8 +48,7 @@ class CheckScheduler:
         if self.is_running():
             return
         self._running = True
-        loop = asyncio.get_event_loop()
-        self._task = loop.create_task(self._run())
+        self._task = asyncio.get_running_loop().create_task(self._run())
 
     async def stop(self) -> None:
         self._running = False

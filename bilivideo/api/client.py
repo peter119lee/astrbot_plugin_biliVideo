@@ -149,12 +149,17 @@ class BilibiliHTTPClient:
         raise NetworkError(f"{method} {url} failed: {last_error}")
 
     async def follow_redirect(self, url: str) -> str | None:
-        """Resolve a short URL by following redirects, returning the final URL."""
+        """Resolve a short URL by following redirects, returning the final URL.
+
+        Deliberately sends NO auth cookies (SESSDATA): resolving a redirect
+        needs no login, and the target host is not always trusted, so the
+        session credential must never leak to it.
+        """
 
         session = await self._ensure_session()
         try:
             async with session.get(
-                url, headers=_base_headers(self._cookies), allow_redirects=True
+                url, headers=_base_headers(None), allow_redirects=True
             ) as resp:
                 return str(resp.url)
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
@@ -185,7 +190,7 @@ class BilibiliHTTPClient:
             if resp.status >= 500:
                 raise NetworkError(f"server {resp.status}")
             if resp.status >= 400:
-                raise NetworkError(f"client {resp.status}: {text[:200]}")
+                raise NetworkError(f"client {resp.status}")
             try:
                 return json.loads(text) if text else {}
             except json.JSONDecodeError as exc:

@@ -69,14 +69,17 @@ class BiliVideoPlugin(Star):
         logger.info(f"BiliVideo plugin ready ({login_state})")
 
     async def _seed_push_targets(self, config: PluginConfig) -> None:
-        for gid in config.push_groups:
-            await self._services.subscription_manager.add_push_target(
-                f"{config.platform_prefix}:GroupMessage:{gid}", f"群{gid}"
-            )
-        for uid in config.push_users:
-            await self._services.subscription_manager.add_push_target(
-                f"{config.platform_prefix}:FriendMessage:{uid}", f"QQ{uid}"
-            )
+        try:
+            for gid in config.push_groups:
+                await self._services.subscription_manager.add_push_target(
+                    f"{config.platform_prefix}:GroupMessage:{gid}", f"群{gid}"
+                )
+            for uid in config.push_users:
+                await self._services.subscription_manager.add_push_target(
+                    f"{config.platform_prefix}:FriendMessage:{uid}", f"QQ{uid}"
+                )
+        except Exception as exc:
+            self._tag.warning(f"seed push targets failed: {exc}")
 
     # ──────────────────────── command bindings ────────────────────────
 

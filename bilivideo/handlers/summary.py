@@ -19,6 +19,7 @@ from ..parsing.url_extractor import (
 from ..services import BiliVideoServices
 from ._render_helper import render_note_components
 from ._send_helper import yield_note_response
+from ._utils import parse_command_args
 
 logger = get_logger("BiliVideo/SummaryHandler")
 
@@ -56,8 +57,11 @@ async def handle_summary(services: BiliVideoServices, event: object) -> AsyncIte
     yield event.plain_result("⏳ 正在生成总结,请稍候(可能需要 1-3 分钟)...")  # type: ignore[attr-defined]
     services.cooldown.punch(cooldown_key)
 
+    dedup_key = extract_bvid(video_url) or video_url
     try:
-        note = await services.orchestrator.generate(video_url)
+        note = await services.inflight.run(
+            dedup_key, lambda: services.orchestrator.generate(video_url)
+        )
     except BiliVideoError as exc:
         yield event.plain_result(exc.user_message)  # type: ignore[attr-defined]
         return
@@ -72,7 +76,7 @@ async def handle_latest_video(services: BiliVideoServices, event: object) -> Asy
         yield event.plain_result("⛔ 你没有权限使用此插件")  # type: ignore[attr-defined]
         return
 
-    args = _parse_args(getattr(event, "message_str", "") or "")
+    args = parse_command_args(getattr(event, "message_str", "") or "")
     if not args:
         yield event.plain_result(  # type: ignore[attr-defined]
             "❌ 请提供UP主UID、空间链接或昵称\n用法: /最新视频 <UP主UID或昵称>"
@@ -104,8 +108,11 @@ async def handle_latest_video(services: BiliVideoServices, event: object) -> Asy
     )
 
     try:
-        note = await services.orchestrator.generate(
-            f"https://www.bilibili.com/video/{video.bvid}"
+        note = await services.inflight.run(
+            video.bvid,
+            lambda: services.orchestrator.generate(
+                f"https://www.bilibili.com/video/{video.bvid}"
+            ),
         )
     except BiliVideoError as exc:
         yield event.plain_result(exc.user_message)  # type: ignore[attr-defined]
@@ -117,13 +124,6 @@ async def handle_latest_video(services: BiliVideoServices, event: object) -> Asy
 
 
 # ──────────────────────────── helpers ──────────────────────────────
-
-
-def _parse_args(message: str) -> str:
-    if not message:
-        return ""
-    parts = message.strip().split(maxsplit=1)
-    return parts[1].strip() if len(parts) > 1 else ""
 
 
 def _extract_video_url(raw_msg: str, event: object) -> str:
@@ -141,7 +141,7 @@ def _extract_video_url(raw_msg: str, event: object) -> str:
         if plain_pieces:
             full_text = " ".join(plain_pieces)
 
-    args = _parse_args(raw_msg)
+    args = parse_command_args(raw_msg)
     if args:
         first = args.split()[0]
         bvid = extract_bvid(first)

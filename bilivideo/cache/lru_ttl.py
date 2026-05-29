@@ -15,10 +15,12 @@ import asyncio
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Hashable
-from typing import Generic, TypeVar
+from typing import Final, Generic, TypeVar
 
 K = TypeVar("K", bound=Hashable)
 V = TypeVar("V")
+
+_MISSING: Final[object] = object()
 
 
 class LRUTTLCache(Generic[K, V]):
@@ -42,7 +44,8 @@ class LRUTTLCache(Generic[K, V]):
         """Return a cached value or `None` if missing/expired."""
 
         async with self._lock:
-            return self._get_unlocked(key)
+            value = self._get_unlocked(key)
+            return None if value is _MISSING else value
 
     async def set(self, key: K, value: V) -> None:
         async with self._lock:
@@ -64,7 +67,7 @@ class LRUTTLCache(Generic[K, V]):
 
         async with self._lock:
             cached = self._get_unlocked(key)
-            if cached is not None:
+            if cached is not _MISSING:
                 return cached
 
             inflight = self._inflight.get(key)
@@ -95,14 +98,14 @@ class LRUTTLCache(Generic[K, V]):
     # ------------------------------------------------------------------
     # internals (must hold _lock)
     # ------------------------------------------------------------------
-    def _get_unlocked(self, key: K) -> V | None:
+    def _get_unlocked(self, key: K) -> V | object:
         entry = self._store.get(key)
         if entry is None:
-            return None
+            return _MISSING
         value, expires_at = entry
         if expires_at <= time.monotonic():
             del self._store[key]
-            return None
+            return _MISSING
         # mark as recently used
         self._store.move_to_end(key)
         return value

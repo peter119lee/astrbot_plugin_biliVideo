@@ -19,9 +19,9 @@ def split_text_for_messages(text: str, *, max_chunk: int = 2000) -> list[str]:
             chunks.append(remaining)
             break
         cut = remaining.rfind("\n\n", 0, max_chunk)
-        if cut < int(max_chunk * 0.5):
+        if cut <= 0 or cut < int(max_chunk * 0.5):
             cut = remaining.rfind("\n", 0, max_chunk)
-        if cut < int(max_chunk * 0.3):
+        if cut <= 0 or cut < int(max_chunk * 0.3):
             cut = max_chunk
         chunks.append(remaining[:cut])
         remaining = remaining[cut:].lstrip("\n")

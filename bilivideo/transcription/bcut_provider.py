@@ -42,14 +42,12 @@ class BCutTranscriber:
     callers can run us via `loop.run_in_executor`.
     """
 
-    def __init__(self) -> None:
-        self._session = requests.Session()
-
     def transcribe(self, file_path: str) -> TranscriptResult:
         try:
-            payload = self._upload(file_path)
-            task_id = self._create_task(payload["download_url"])
-            data = self._await_result(task_id)
+            with requests.Session() as session:
+                payload = self._upload(session, file_path)
+                task_id = self._create_task(session, payload["download_url"])
+                data = self._await_result(session, task_id)
         except (requests.RequestException, json.JSONDecodeError, KeyError) as exc:
             raise TranscriptionError(f"BCut ASR failed: {exc}") from exc
 
@@ -81,13 +79,14 @@ class BCutTranscriber:
     # ------------------------------------------------------------------
     # internals
     # ------------------------------------------------------------------
-    def _upload(self, file_path: str) -> dict[str, Any]:
+    def _upload(self, session: requests.Session, file_path: str) -> dict[str, Any]:
         with open(file_path, "rb") as fp:
             data = fp.read()
         if not data:
             raise TranscriptionError("audio file is empty")
 
         meta = self._post_json(
+            session,
             ENDPOINT_CREATE,
             {
                 "type": 2,
@@ -107,7 +106,7 @@ class BCutTranscriber:
         for clip, url in enumerate(upload_urls):
             start = clip * per_size
             end = min((clip + 1) * per_size, len(data))
-            resp = self._session.put(
+            resp = session.put(
                 url,
                 data=data[start:end],
                 headers={"Content-Type": "application/octet-stream"},
@@ -118,6 +117,7 @@ class BCutTranscriber:
             etags.append(etag)
 
         commit = self._post_json(
+            session,
             ENDPOINT_COMMIT,
             {
                 "InBossKey": in_boss_key,
@@ -129,16 +129,17 @@ class BCutTranscriber:
         )
         return commit
 
-    def _create_task(self, download_url: str) -> str:
+    def _create_task(self, session: requests.Session, download_url: str) -> str:
         payload = self._post_json(
+            session,
             ENDPOINT_TASK,
             {"resource": download_url, "model_id": "8"},
         )
         return payload["task_id"]
 
-    def _await_result(self, task_id: str) -> dict[str, Any]:
+    def _await_result(self, session: requests.Session, task_id: str) -> dict[str, Any]:
         for attempt in range(POLL_MAX_TRIES):
-            resp = self._session.get(
+            resp = session.get(
                 ENDPOINT_RESULT,
                 params={"model_id": 7, "task_id": task_id},
                 headers=_HEADERS,
@@ -159,8 +160,10 @@ class BCutTranscriber:
             time.sleep(POLL_INTERVAL_SECONDS)
         raise TranscriptionError("BCut task timed out")
 
-    def _post_json(self, url: str, body: dict[str, Any]) -> dict[str, Any]:
-        resp = self._session.post(url, data=json.dumps(body), headers=_HEADERS, timeout=15)
+    def _post_json(
+        self, session: requests.Session, url: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        resp = session.post(url, data=json.dumps(body), headers=_HEADERS, timeout=15)
         resp.raise_for_status()
         payload = resp.json()
         if payload.get("code") != 0:

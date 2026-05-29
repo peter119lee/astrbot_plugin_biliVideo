@@ -121,7 +121,7 @@ class WkHtmlRenderer:
             "width": str(self._image_width),
             "encoding": "UTF-8",
             "quality": "94",
-            "enable-local-file-access": "",
+            "disable-javascript": "",
             "no-stop-slow-scripts": "",
             "disable-smart-width": "",
         }

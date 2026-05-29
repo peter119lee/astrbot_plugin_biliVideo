@@ -17,6 +17,7 @@ from ..parsing.url_extractor import extract_uid
 from ..services import BiliVideoServices
 from ._render_helper import render_note_components
 from ._send_helper import yield_note_response
+from ._utils import parse_command_args
 
 
 async def handle_subscribe(services: BiliVideoServices, event: object) -> AsyncIterator[object]:
@@ -24,7 +25,7 @@ async def handle_subscribe(services: BiliVideoServices, event: object) -> AsyncI
         yield event.plain_result("⛔ 你没有权限使用此插件")  # type: ignore[attr-defined]
         return
 
-    args = _parse_args(getattr(event, "message_str", "") or "")
+    args = parse_command_args(getattr(event, "message_str", "") or "")
     if not args:
         yield event.plain_result(  # type: ignore[attr-defined]
             "❌ 请提供UP主UID、空间链接或昵称\n用法: /订阅 <UP主UID或昵称>"
@@ -62,8 +63,8 @@ async def handle_subscribe(services: BiliVideoServices, event: object) -> AsyncI
                     video_info = await get_video_info(services.http_client, videos[0].bvid)
                     if video_info.owner_name:
                         name = video_info.owner_name
-                except BiliVideoError:
-                    pass
+                except BiliVideoError as exc:
+                    services.logger.debug(f"owner name lookup failed for {mid}: {exc}")
             if not name:
                 name = f"UP主_{mid}"
 
@@ -84,7 +85,7 @@ async def handle_unsubscribe(services: BiliVideoServices, event: object) -> Asyn
         yield event.plain_result("⛔ 你没有权限使用此插件")  # type: ignore[attr-defined]
         return
 
-    args = _parse_args(getattr(event, "message_str", "") or "")
+    args = parse_command_args(getattr(event, "message_str", "") or "")
     if not args:
         yield event.plain_result(  # type: ignore[attr-defined]
             "❌ 请提供UP主UID、空间链接或昵称\n用法: /取消订阅 <UP主UID或昵称>"
@@ -114,6 +115,10 @@ async def handle_list_subscriptions(
     services: BiliVideoServices, event: object
 ) -> AsyncIterator[object]:
     origin = getattr(event, "unified_msg_origin", "")
+    if not is_allowed(origin, config=services.config):
+        yield event.plain_result("⛔ 你没有权限使用此插件")  # type: ignore[attr-defined]
+        return
+
     subs = await services.subscription_manager.get_subscriptions(origin)
     if not subs:
         yield event.plain_result(  # type: ignore[attr-defined]
@@ -188,10 +193,3 @@ async def handle_check_updates(
         yield event.plain_result("✅ 检查完成,所有订阅的UP主暂无新视频")  # type: ignore[attr-defined]
     else:
         yield event.plain_result(f"✅ 检查完成,共发现 {found} 个新视频")  # type: ignore[attr-defined]
-
-
-def _parse_args(message: str) -> str:
-    if not message:
-        return ""
-    parts = message.strip().split(maxsplit=1)
-    return parts[1].strip() if len(parts) > 1 else ""

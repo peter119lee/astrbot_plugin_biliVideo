@@ -98,6 +98,15 @@ class TestIsBilibiliDomain:
         assert not is_bilibili_domain("https://github.com")
         assert not is_bilibili_domain("https://evilbilibili.com")
 
+    def test_rejects_substring_deception(self) -> None:
+        # The earlier auto-detect guard used `"bili" in url`, which all of
+        # these would satisfy. The hostname check must reject them so a
+        # crafted link can never aim follow_redirect at a non-Bilibili host.
+        assert not is_bilibili_domain("http://evil.com/?x=bili")
+        assert not is_bilibili_domain("http://169.254.169.254/bili")
+        assert not is_bilibili_domain("http://bilibili.com.evil.com/")
+        assert not is_bilibili_domain("http://bili.evil.com/")
+
 
 class TestParseJsonCard:
     def test_qqdocurl(self) -> None:

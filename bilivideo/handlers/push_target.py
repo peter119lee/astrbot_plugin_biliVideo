@@ -6,13 +6,7 @@ from collections.abc import AsyncIterator
 
 from ..access.control import is_allowed
 from ..services import BiliVideoServices
-
-
-def _parse_args(message: str) -> str:
-    if not message:
-        return ""
-    parts = message.strip().split(maxsplit=1)
-    return parts[1].strip() if len(parts) > 1 else ""
+from ._utils import parse_command_args
 
 
 def _platform_prefix(services: BiliVideoServices, origin: str) -> str:
@@ -27,7 +21,7 @@ async def handle_add_push_group(
         yield event.plain_result("⛔ 你没有权限使用此插件")  # type: ignore[attr-defined]
         return
 
-    args = _parse_args(getattr(event, "message_str", "") or "")
+    args = parse_command_args(getattr(event, "message_str", "") or "")
     if not args or not args.isdigit():
         yield event.plain_result("❌ 请提供QQ群号\n用法: /添加推送群 <群号>")  # type: ignore[attr-defined]
         return
@@ -50,7 +44,7 @@ async def handle_add_push_user(
         yield event.plain_result("⛔ 你没有权限使用此插件")  # type: ignore[attr-defined]
         return
 
-    args = _parse_args(getattr(event, "message_str", "") or "")
+    args = parse_command_args(getattr(event, "message_str", "") or "")
     if not args or not args.isdigit():
         yield event.plain_result("❌ 请提供QQ号\n用法: /添加推送号 <QQ号>")  # type: ignore[attr-defined]
         return
@@ -69,6 +63,10 @@ async def handle_add_push_user(
 async def handle_list_push(
     services: BiliVideoServices, event: object
 ) -> AsyncIterator[object]:
+    if not is_allowed(getattr(event, "unified_msg_origin", ""), config=services.config):
+        yield event.plain_result("⛔ 你没有权限使用此插件")  # type: ignore[attr-defined]
+        return
+
     targets = await services.subscription_manager.get_push_targets()
     if not targets:
         yield event.plain_result(  # type: ignore[attr-defined]
@@ -92,7 +90,7 @@ async def handle_remove_push(
         yield event.plain_result("⛔ 你没有权限使用此插件")  # type: ignore[attr-defined]
         return
 
-    args = _parse_args(getattr(event, "message_str", "") or "")
+    args = parse_command_args(getattr(event, "message_str", "") or "")
     if not args:
         yield event.plain_result("❌ 请提供要移除的群号或QQ号\n用法: /移除推送 <群号或QQ号>")  # type: ignore[attr-defined]
         return

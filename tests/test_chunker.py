@@ -22,6 +22,19 @@ class TestSplitTextForMessages:
         assert len(chunks) >= 2
         assert sum(len(c) for c in chunks) == 100
 
+    def test_no_newline_chunks_within_limit(self) -> None:
+        text = "Y" * 250
+        chunks = split_text_for_messages(text, max_chunk=40)
+        assert all(len(c) <= 40 for c in chunks)
+        assert "".join(chunks) == text
+
+    def test_newline_near_start_produces_valid_chunks(self) -> None:
+        text = "A\n" + "B" * 200
+        chunks = split_text_for_messages(text, max_chunk=40)
+        assert all(len(c) <= 40 for c in chunks)
+        assert all(c for c in chunks)
+        assert "".join(chunks).replace("\n", "") == text.replace("\n", "")
+
 
 class TestFormatCount:
     def test_small(self) -> None:

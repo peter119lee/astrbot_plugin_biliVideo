@@ -61,6 +61,19 @@ def _coerce_str(raw: Any, default: str, *, options: tuple[str, ...] | None = Non
     return value
 
 
+def _coerce_url_base(raw: Any) -> str:
+    """Normalize an HTTP(S) base URL, blanking malformed/non-http values.
+
+    A non-empty value that does not start with `http://` or `https://` is
+    dropped to `""` so it can't be used as a malformed or SSRF-prone base.
+    """
+
+    value = _coerce_str(raw, "").rstrip("/")
+    if value and not value.startswith(("http://", "https://")):
+        return ""
+    return value
+
+
 def _split_csv(raw: Any) -> tuple[str, ...]:
     """Split a 'a,b,c' style string into a tuple of stripped non-empty pieces."""
 
@@ -151,7 +164,7 @@ class PluginConfig:
             processing_timeout=_coerce_int(raw.get("processing_timeout"), 300, lo=60, hi=1800),
             user_cooldown_seconds=_coerce_int(raw.get("user_cooldown_seconds"), 8, lo=0, hi=600),
             llm_provider=_coerce_str(raw.get("llm_provider"), "astrbot", options=LLM_PROVIDERS),
-            llm_api_base=_coerce_str(raw.get("llm_api_base"), "").rstrip("/"),
+            llm_api_base=_coerce_url_base(raw.get("llm_api_base")),
             llm_api_key=_coerce_str(raw.get("llm_api_key"), ""),
             llm_model=_coerce_str(raw.get("llm_model"), "gpt-4o-mini"),
             llm_temperature=_coerce_float(raw.get("llm_temperature"), 0.4),

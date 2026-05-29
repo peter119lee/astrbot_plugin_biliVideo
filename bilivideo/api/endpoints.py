@@ -20,7 +20,7 @@ from ..core.constants import (
     VIDEO_INFO_CACHE_MAX,
     VIDEO_INFO_CACHE_TTL_SECONDS,
 )
-from ..core.exceptions import BilibiliAPIError, BiliVideoError
+from ..core.exceptions import BilibiliAPIError, BiliVideoError, NetworkError
 from ..core.logging import get_logger
 from ..core.types import (
     LatestVideo,
@@ -54,6 +54,14 @@ def _normalize_pic(pic: str) -> str:
 _video_info_cache: LRUTTLCache[str, VideoInfo] = LRUTTLCache(
     max_size=VIDEO_INFO_CACHE_MAX, ttl_seconds=VIDEO_INFO_CACHE_TTL_SECONDS
 )
+
+
+def video_info_cache_size() -> int:
+    return len(_video_info_cache)
+
+
+async def clear_video_info_cache() -> None:
+    await _video_info_cache.clear()
 
 
 # ──────────────────────────── reading ───────────────────────────────
@@ -92,7 +100,7 @@ async def get_uploader_info(client: BilibiliHTTPClient, mid: str) -> UploaderInf
         return None
     try:
         payload = await client.request_json("GET", ENDPOINT_USER_INFO, params=signed)
-    except BilibiliAPIError as exc:
+    except (BilibiliAPIError, NetworkError) as exc:
         logger.warning(f"get_uploader_info({mid}) failed: {exc}")
         return None
     data = payload.get("data") or {}
@@ -114,7 +122,7 @@ async def get_latest_videos(
         return []
     try:
         payload = await client.request_json("GET", ENDPOINT_USER_VIDEOS, params=signed)
-    except BilibiliAPIError as exc:
+    except (BilibiliAPIError, NetworkError) as exc:
         logger.warning(f"get_latest_videos({mid}) failed: {exc}")
         return []
 

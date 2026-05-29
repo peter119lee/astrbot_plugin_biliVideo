@@ -5,8 +5,8 @@ from __future__ import annotations
 import shutil
 from collections.abc import AsyncIterator
 
-from ..api.endpoints import _video_info_cache
-from ..api.wbi import _KEY_CACHE
+from ..api.endpoints import clear_video_info_cache, video_info_cache_size
+from ..api.wbi import clear_wbi_cache
 from ..core.logging import get_logger
 from ..llm.provider import DisabledLLMProvider
 from ..services import BiliVideoServices
@@ -43,7 +43,7 @@ async def handle_status(services: BiliVideoServices, event: object) -> AsyncIter
         f"🔁 自动识别: {'开' if services.enable_miniapp_detect else '关'}\n"
         f"📡 定时检查: {scheduler_state} (间隔 {cfg.check_interval_minutes} 分钟)\n"
         f"📋 推送目标: {len(targets)} 个\n"
-        f"🗄  视频信息缓存: {len(_video_info_cache)} 条\n"
+        f"🗄  视频信息缓存: {video_info_cache_size()} 条\n"
         f"⏳ 用户冷却窗口: {cfg.user_cooldown_seconds} 秒\n"
         f"🖼 图片输出: {'on' if cfg.output_image else 'off'}  / "
         f" 自动分图: {'on' if cfg.enable_auto_split else 'off'}\n"
@@ -53,9 +53,9 @@ async def handle_status(services: BiliVideoServices, event: object) -> AsyncIter
 
 
 async def handle_clear_cache(services: BiliVideoServices, event: object) -> AsyncIterator[object]:
-    before = len(_video_info_cache)
-    await _video_info_cache.clear()
-    await _KEY_CACHE.clear()
+    before = video_info_cache_size()
+    await clear_video_info_cache()
+    await clear_wbi_cache()
     yield event.plain_result(  # type: ignore[attr-defined]
         f"🧹 已清除缓存(视频信息 {before} 条 + WBI 密钥)"
     )

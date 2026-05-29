@@ -31,7 +31,7 @@ from ..parsing.url_extractor import (
     extract_bvid,
     extract_long_url,
     extract_short_url,
-    is_short_bili_url,
+    is_bilibili_domain,
 )
 from ..services import BiliVideoServices
 from ._render_helper import render_note_components
@@ -92,7 +92,9 @@ async def handle_auto_detect(
     if services.config.detect_auto_summary:
         yield event.plain_result("⏳ 正在生成视频总结...")  # type: ignore[attr-defined]
         try:
-            note = await services.orchestrator.generate(info.url)
+            note = await services.inflight.run(
+                bvid, lambda: services.orchestrator.generate(info.url)
+            )
         except BiliVideoError as exc:
             yield event.plain_result(exc.user_message)  # type: ignore[attr-defined]
             return
@@ -132,7 +134,7 @@ async def _resolve_bvid(
         bvid = extract_bvid(bili_url)
         if bvid:
             return bvid
-        if is_short_bili_url(bili_url) or "bili" in bili_url.lower():
+        if is_bilibili_domain(bili_url):
             resolved = await services.http_client.follow_redirect(bili_url)
             if resolved:
                 bvid = extract_bvid(resolved)

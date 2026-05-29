@@ -53,6 +53,21 @@ async def test_single_flight() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_or_set_caches_none_value() -> None:
+    cache: LRUTTLCache[str, None] = LRUTTLCache(max_size=4, ttl_seconds=60)
+    counter = {"n": 0}
+
+    async def factory() -> None:
+        counter["n"] += 1
+        value: None = None
+        return value
+
+    assert await cache.get_or_set("k", factory) is None
+    assert await cache.get_or_set("k", factory) is None
+    assert counter["n"] == 1
+
+
+@pytest.mark.asyncio
 async def test_invalidate_and_clear() -> None:
     cache: LRUTTLCache[str, int] = LRUTTLCache(max_size=4, ttl_seconds=60)
     await cache.set("a", 1)

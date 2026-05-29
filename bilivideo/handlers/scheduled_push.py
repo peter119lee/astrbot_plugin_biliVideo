@@ -33,6 +33,9 @@ async def push_callback(
     origin: str,
     sub: Subscription,
 ) -> int:
+    if services.astrbot_context is None:
+        services.logger.error("push_callback: astrbot_context is None; cannot deliver push")
+        return 0
     try:
         videos = await get_latest_videos(services.http_client, sub.mid, count=1)
     except BiliVideoError as exc:

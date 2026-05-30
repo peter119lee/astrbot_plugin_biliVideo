@@ -194,3 +194,32 @@ async def test_summary_is_cached_per_bvid(monkeypatch) -> None:
     await orch.clear_cache()
     await orch.generate(url)
     assert len(llm.calls) == 2  # regenerated after the cache was cleared
+
+
+@pytest.mark.asyncio
+async def test_llm_timeout_surfaces_specific_error(monkeypatch) -> None:
+    import asyncio as _asyncio
+
+    from bilivideo.core.exceptions import BiliVideoError
+    from bilivideo.summarize import orchestrator as orch_mod
+
+    config = PluginConfig.from_mapping({})
+    info = VideoInfo(bvid="BV1abc", title="t", owner_name="UP")
+    _patch_get_video_info(monkeypatch, info)
+    monkeypatch.setattr(orch_mod, "LLM_CHAT_TIMEOUT_SECONDS", 0.05)
+
+    class _SlowLLM:
+        async def chat(self, prompt: str, *, session_id: str | None = None) -> str:
+            await _asyncio.sleep(1)
+            return "too late"
+
+    output = _make_pipeline_output(with_audio=True)
+    pipeline = _StubPipeline(output)
+    orch = SummaryOrchestrator(
+        config=config, llm=_SlowLLM(), pipeline=pipeline, http_client=_StubHTTP()  # type: ignore[arg-type]
+    )
+    with pytest.raises(BiliVideoError) as excinfo:
+        await orch.generate("https://www.bilibili.com/video/BV1abc")
+
+    assert "AI 总结超时" in excinfo.value.user_message
+    assert pipeline.cleanup_calls == [output.audio]  # cleanup still runs in finally

@@ -19,7 +19,7 @@ from pathlib import Path
 
 import yt_dlp
 
-from ..core.constants import QUALITY_TO_KBPS
+from ..core.constants import QUALITY_TO_KBPS, YTDLP_SOCKET_TIMEOUT_SECONDS
 from ..core.exceptions import DownloadError, TranscriptionError
 from ..core.logging import get_logger
 from ..core.types import AudioDownloadResult, TranscriptResult, TranscriptSegment
@@ -122,6 +122,7 @@ class YtDlpDownloader:
             "noplaylist": True,
             "quiet": True,
             "no_warnings": True,
+            "socket_timeout": YTDLP_SOCKET_TIMEOUT_SECONDS,
         }
         if self._cookies_file and self._cookies_file.exists():
             opts["cookiefile"] = str(self._cookies_file)
@@ -169,6 +170,7 @@ class YtDlpDownloader:
             "outtmpl": str(target / f"{video_id}.%(ext)s"),
             "quiet": True,
             "no_warnings": True,
+            "socket_timeout": YTDLP_SOCKET_TIMEOUT_SECONDS,
         }
         if self._cookies_file and self._cookies_file.exists():
             opts["cookiefile"] = str(self._cookies_file)

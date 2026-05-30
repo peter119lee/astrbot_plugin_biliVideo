@@ -26,6 +26,15 @@ HTTP_TIMEOUT_SECONDS: Final[int] = 12
 HTTP_MAX_RETRIES: Final[int] = 3
 HTTP_BACKOFF_BASE: Final[float] = 0.6  # seconds; exponential backoff base
 
+# Per-stage budgets (seconds). A single hung stage surfaces a specific error
+# fast, instead of the whole request blocking until processing_timeout.
+SUBTITLE_FETCH_TIMEOUT_SECONDS: Final[int] = 90
+AUDIO_DOWNLOAD_TIMEOUT_SECONDS: Final[int] = 150
+ASR_TIMEOUT_SECONDS: Final[int] = 180
+LLM_CHAT_TIMEOUT_SECONDS: Final[int] = 180
+# yt-dlp per-socket timeout so a stalled connection can't hang a download.
+YTDLP_SOCKET_TIMEOUT_SECONDS: Final[int] = 30
+
 # ───────────────────────── Bilibili API ──────────────────────────
 
 API_BASE: Final[str] = "https://api.bilibili.com"

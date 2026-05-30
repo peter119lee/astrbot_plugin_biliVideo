@@ -19,7 +19,7 @@ from ..api.client import BilibiliHTTPClient
 from ..api.endpoints import get_video_info
 from ..cache.lru_ttl import LRUTTLCache
 from ..core.config import PluginConfig
-from ..core.constants import SUMMARY_CACHE_MAX, SUMMARY_CACHE_TTL_SECONDS
+from ..core.constants import LLM_CHAT_TIMEOUT_SECONDS, SUMMARY_CACHE_MAX, SUMMARY_CACHE_TTL_SECONDS
 from ..core.exceptions import BiliVideoError
 from ..core.logging import get_logger
 from ..core.types import VideoInfo
@@ -125,7 +125,15 @@ class SummaryOrchestrator:
         )
 
         try:
-            markdown = await self._llm.chat(prompt, session_id="BiliVideo_plugin")
+            markdown = await asyncio.wait_for(
+                self._llm.chat(prompt, session_id="BiliVideo_plugin"),
+                timeout=LLM_CHAT_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError as exc:
+            raise BiliVideoError(
+                f"LLM chat timed out after {LLM_CHAT_TIMEOUT_SECONDS}s",
+                user_message="❌ AI 总结超时:当前对话模型无响应,请在 AstrBot 检查或更换对话模型",
+            ) from exc
         finally:
             self._pipeline.cleanup_audio(output.audio)
 

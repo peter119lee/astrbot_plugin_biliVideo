@@ -9,7 +9,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.0.0-orange)](CHANGELOG.md)
-[![Tests](https://img.shields.io/badge/tests-173%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-186%20passing-success)](tests/)
 
 </div>
 
@@ -22,7 +22,7 @@ biliVideo v2.0 是一次**完全重写**的工程升级。主要目标:
 - **可维护性**:`main.py` 从 2,000 行单一巨型文件瘦身到约 160 行。所有逻辑下放到 `bilivideo/` 子包,按职责严格分层。
 - **健壮性**:HTTP 层采用共享 `aiohttp.ClientSession` + 指数退避重试;订阅文件原子写入 + `fsync`;Cookie 文件 0600 权限。
 - **响应速度**:带 TTL 的 LRU 缓存避免同一 BV 重复请求 B 站;single-flight 让多人同时粘贴同一链接只触发一次工作。
-- **可测试**:173 个 PyTest 单元/集成测试覆盖 URL 解析、分页、智能截断、订阅持久化、冷却、缓存、消息路由、渲染降级链等。
+- **可测试**:186 个 PyTest 单元/集成测试覆盖 URL 解析、分页、智能截断、订阅持久化、冷却、缓存、消息路由、渲染降级链等。
 - **类型化**:所有 API 返回 `dataclass`(`VideoInfo` / `UploaderInfo` / …),配置读取经 `PluginConfig` 校验。
 
 > 命令、配置项、行为对终端用户**完全向后兼容**。配置文件不需要改动即可升级。
@@ -202,7 +202,7 @@ AI 自动组合调用两个工具:`bilibili_search_list` 与 `bilibili_search_do
 
 ## ⚙️ 配置项
 
-部分常用配置:
+配置面板已按功能分组(🔧 通用 / 🤖 LLM / 📝 总结 / 🎨 渲染 / 💬 消息 / 🔍 识别 / 📡 订阅 / 🔐 访问 / 🔎 搜索 / 🧪 实验)。部分常用配置:
 
 | 配置 | 默认 | 说明 |
 | --- | --- | --- |
@@ -213,6 +213,7 @@ AI 自动组合调用两个工具:`bilibili_search_list` 与 `bilibili_search_do
 | `download_quality` | `fast` | `fast`(32k) / `medium`(64k) / `slow`(128k) |
 | `prefer_subtitle` | `true` | 优先平台字幕,无字幕才下载音频 |
 | `enable_multi_platform` | `false` | 🧪 实验:`/总结` 支持 YouTube/抖音(yt-dlp,字幕优先;非中文 ASR 质量不保证) |
+| `youtube_cookies_file` | `""` | 🧪 实验:YouTube cookies.txt 路径(留空=数据目录默认位置)。VPS 拉 YouTube 常需登录 cookies,**请务必用小号**(有封号风险),详见 `/YT登录` |
 | `llm_provider_id` | `""` | 指定 AstrBot 内置模型 ID(留空=当前模型;用 `/总结模型` 查看可用 ID) |
 | `enable_auto_push` | `false` | 启用定时推送新视频 |
 | `auto_push_summary` | `true` | 推送新视频时是否附带 AI 总结 |

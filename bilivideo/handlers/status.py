@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 from ..api.endpoints import clear_video_info_cache, video_info_cache_size
 from ..api.wbi import clear_wbi_cache
@@ -49,6 +50,12 @@ async def handle_status(services: BiliVideoServices, event: object) -> AsyncIter
         pinned = getattr(services.llm, "provider_id", "") or ""
         llm_state = f"astrbot:{pinned}" if pinned else "astrbot 当前模型"
 
+    if cfg.enable_multi_platform:
+        yt_cookies = "有" if Path(services.youtube_cookies_file).exists() else "无"
+        multi_state = f"on (实验,仅 /总结;YT cookies:{yt_cookies})"
+    else:
+        multi_state = "off"
+
     body = (
         "🩺 biliVideo 状态\n"
         "━━━━━━━━━━━━━━━━━━━\n"
@@ -58,7 +65,7 @@ async def handle_status(services: BiliVideoServices, event: object) -> AsyncIter
         f"🎨 渲染后端: {backends}\n"
         f"🛠 系统工具: ffmpeg {ffmpeg}  wkhtmltoimage {wkhtml}\n"
         f"🔁 自动识别: {'开' if services.enable_miniapp_detect else '关'}\n"
-        f"🌐 多平台: {'on (实验,仅 /总结)' if cfg.enable_multi_platform else 'off'}\n"
+        f"🌐 多平台: {multi_state}\n"
         f"📡 定时检查: {scheduler_state} (间隔 {cfg.check_interval_minutes} 分钟)\n"
         f"📋 推送目标: {len(targets)} 个\n"
         f"🗄  视频信息缓存: {video_info_cache_size()} 条\n"

@@ -61,9 +61,16 @@ class BiliVideoServices:
         self.http_client = BilibiliHTTPClient(self.cookies.get())
 
         # Download / transcription
+        # YouTube cookies (experimental): an admin drops a Netscape cookies.txt
+        # at the configured path, else we look at the default location in the
+        # data dir. Reused by the downloader for YouTube URLs and shown by /YT登录.
+        self.youtube_cookies_file = config.youtube_cookies_file or str(
+            Path(data_dir) / "youtube_cookies.txt"
+        )
         self.downloader = YtDlpDownloader(
             data_dir=str(Path(data_dir) / "audio"),
             cookies=self.cookies.get(),
+            youtube_cookies_file=self.youtube_cookies_file,
         )
         self.transcriber = BCutTranscriber()
         self.pipeline = TranscriptPipeline(self.downloader, self.transcriber)

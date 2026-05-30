@@ -23,6 +23,7 @@ from ..core.constants import QUALITY_TO_KBPS, YTDLP_SOCKET_TIMEOUT_SECONDS
 from ..core.exceptions import DownloadError, TranscriptionError
 from ..core.logging import get_logger
 from ..core.types import AudioDownloadResult, TranscriptResult, TranscriptSegment
+from ..parsing.url_extractor import detect_platform
 
 logger = get_logger("BiliVideo/Download")
 
@@ -61,10 +62,19 @@ DEFAULT_SUBTITLE_LANGS: tuple[str, ...] = (
 class YtDlpDownloader:
     """Bilibili audio + subtitle downloader."""
 
-    def __init__(self, data_dir: str | Path, *, cookies: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        data_dir: str | Path,
+        *,
+        cookies: Mapping[str, str] | None = None,
+        youtube_cookies_file: str | Path | None = None,
+    ) -> None:
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._cookies_file: Path | None = None
+        self._youtube_cookies_file: Path | None = (
+            Path(youtube_cookies_file) if youtube_cookies_file else None
+        )
         self.update_cookies(cookies)
 
     # ------------------------------------------------------------------
@@ -96,6 +106,23 @@ class YtDlpDownloader:
             return
         self._cookies_file = path
 
+    def _cookiefile_for(self, video_url: str) -> str | None:
+        """Pick the cookie jar for the target platform.
+
+        YouTube increasingly blocks datacenter IPs with a "confirm you're not
+        a bot" check; an admin-supplied cookies.txt (exported from a burner
+        Google account) is the documented workaround. Bilibili keeps using the
+        login cookies written by ``update_cookies``.
+        """
+
+        if detect_platform(video_url) == "youtube":
+            if self._youtube_cookies_file and self._youtube_cookies_file.exists():
+                return str(self._youtube_cookies_file)
+            return None
+        if self._cookies_file and self._cookies_file.exists():
+            return str(self._cookies_file)
+        return None
+
     # ------------------------------------------------------------------
     # public API
     # ------------------------------------------------------------------
@@ -124,8 +151,9 @@ class YtDlpDownloader:
             "no_warnings": True,
             "socket_timeout": YTDLP_SOCKET_TIMEOUT_SECONDS,
         }
-        if self._cookies_file and self._cookies_file.exists():
-            opts["cookiefile"] = str(self._cookies_file)
+        cookiefile = self._cookiefile_for(video_url)
+        if cookiefile:
+            opts["cookiefile"] = cookiefile
 
         ffmpeg_path = _ffmpeg_location()
         if ffmpeg_path:
@@ -135,7 +163,7 @@ class YtDlpDownloader:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(video_url, download=True)
         except yt_dlp.utils.DownloadError as exc:
-            raise DownloadError(str(exc)) from exc
+            raise _wrap_download_error(exc, video_url) from exc
 
         video_id = info.get("id", "")
         audio_path = target / f"{video_id}.mp3"
@@ -172,8 +200,9 @@ class YtDlpDownloader:
             "no_warnings": True,
             "socket_timeout": YTDLP_SOCKET_TIMEOUT_SECONDS,
         }
-        if self._cookies_file and self._cookies_file.exists():
-            opts["cookiefile"] = str(self._cookies_file)
+        cookiefile = self._cookiefile_for(video_url)
+        if cookiefile:
+            opts["cookiefile"] = cookiefile
 
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
@@ -199,6 +228,36 @@ class YtDlpDownloader:
 
 
 # ──────────────────────────── helpers ──────────────────────────────
+
+
+_YT_BOT_CHECK_SIGNS: tuple[str, ...] = (
+    "sign in to confirm",
+    "confirm you're not a bot",
+    "confirm you are not a bot",
+)
+
+
+def _wrap_download_error(exc: Exception, video_url: str) -> DownloadError:
+    """Map a yt-dlp download failure to a DownloadError with a useful hint.
+
+    YouTube on a datacenter IP often refuses with a "confirm you're not a bot"
+    sign-in wall. Surface a message that points at /YT登录 and the burner-account
+    workaround instead of the generic copyright/deleted hint.
+    """
+
+    message = str(exc)
+    if detect_platform(video_url) == "youtube" and any(
+        sign in message.lower() for sign in _YT_BOT_CHECK_SIGNS
+    ):
+        return DownloadError(
+            message,
+            user_message=(
+                "❌ YouTube 拒绝下载:需要登录验证(VPS 机房 IP 常被要求\"确认你不是机器人\")。\n"
+                "请发送 /YT登录 查看如何提供 cookies。\n"
+                "⚠️ 强烈建议使用小号/不重要的 Google 账号,有封号风险!"
+            ),
+        )
+    return DownloadError(message)
 
 
 def _extract_video_id_from_url(url: str) -> str | None:

@@ -45,3 +45,32 @@ def test_openai_compatible_predicate() -> None:
     )
     assert cfg.is_openai_compatible
     assert cfg.has_llm_credentials()
+
+
+def test_nested_groups_are_flattened() -> None:
+    cfg = PluginConfig.from_mapping(
+        {
+            "general": {"debug_mode": True, "processing_timeout": 120},
+            "llm": {"llm_provider": "openai_compatible"},
+            "experimental": {
+                "enable_multi_platform": True,
+                "youtube_cookies_file": "/tmp/yt.txt",
+            },
+        }
+    )
+    assert cfg.debug_mode is True
+    assert cfg.processing_timeout == 120
+    assert cfg.llm_provider == "openai_compatible"
+    assert cfg.enable_multi_platform is True
+    assert cfg.youtube_cookies_file == "/tmp/yt.txt"
+
+
+def test_flat_config_still_supported() -> None:
+    # legacy flat layout must keep working alongside the new nested groups
+    cfg = PluginConfig.from_mapping({"debug_mode": True, "max_note_length": 800})
+    assert cfg.debug_mode is True
+    assert cfg.max_note_length == 800
+
+
+def test_youtube_cookies_file_defaults_empty() -> None:
+    assert PluginConfig.from_mapping({}).youtube_cookies_file == ""

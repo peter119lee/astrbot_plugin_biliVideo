@@ -70,10 +70,10 @@ class NotLoggedInError(BiliVideoError):
 class DownloadError(BiliVideoError):
     """音频/视频下载失败。"""
 
-    def __init__(self, message: str) -> None:
+    def __init__(self, message: str, *, user_message: str | None = None) -> None:
         super().__init__(
             message,
-            user_message="❌ 视频音频下载失败,可能是版权限制或视频已删除",
+            user_message=user_message or "❌ 视频音频下载失败,可能是版权限制或视频已删除",
         )
 
 

@@ -118,6 +118,11 @@ class BiliVideoPlugin(Star):
         async for resp in handlers.handle_logout(self._services, event):
             yield resp
 
+    @filter.command("YT登录", alias={"ytlogin", "yt登录", "油管登录", "youtube登录"})
+    async def cmd_youtube_login(self, event: AstrMessageEvent) -> AsyncIterator[object]:
+        async for resp in handlers.handle_youtube_login(self._services, event):
+            yield resp
+
     @filter.command("总结", alias={"bv", "BiliVideo", "视频总结"})
     async def cmd_summary(self, event: AstrMessageEvent) -> AsyncIterator[object]:
         async for resp in handlers.handle_summary(self._services, event):

@@ -341,13 +341,7 @@
         "type": "bool",
         "default": false,
         "description": "多平台(YouTube/抖音)",
-        "hint": "⚠️ 实验性,默认关闭。开启后 /总结 也接受 YouTube/抖音链接(yt-dlp 下载,优先用平台字幕)。注意:无字幕时回退的 BCut ASR 仅针对中文优化,非中文视频转写质量很差。本插件以 B 站为主,多平台仅供尝鲜。"
-      },
-      "youtube_cookies_file": {
-        "type": "string",
-        "default": "",
-        "description": "YouTube cookies.txt 路径",
-        "hint": "VPS 下载 YouTube 常被要求\"确认你不是机器人\",需提供登录 cookies。留空=用默认路径(插件数据目录下的 youtube_cookies.txt)。⚠️ yt-dlp 从机房 IP 下载有封号风险,请务必使用小号/不重要的 Google 账号!操作方法发送 /YT登录 查看。"
+        "hint": "⚠️ 实验性,默认关闭。开启后 /总结 也接受 YouTube/抖音链接(yt-dlp 下载,优先用平台字幕)。YouTube 需登录:发送 /YT登录 在聊天里贴 cookies(机器人自动保存,无需在服务器建文件;有封号风险,请用小号)。注意:无字幕时回退的 BCut ASR 仅针对中文优化,非中文视频转写质量很差。"
       }
     }
   }

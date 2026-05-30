@@ -16,6 +16,7 @@ from .access.inflight import InflightDeduper
 from .api.client import BilibiliHTTPClient
 from .auth.cookies import CookieJar
 from .auth.qrlogin import QRLoginService
+from .auth.youtube_cookies import YouTubeCookieStore
 from .core.config import PluginConfig
 from .core.logging import get_logger
 from .core.runtime_state import RuntimeState
@@ -61,12 +62,11 @@ class BiliVideoServices:
         self.http_client = BilibiliHTTPClient(self.cookies.get())
 
         # Download / transcription
-        # YouTube cookies (experimental): an admin drops a Netscape cookies.txt
-        # at the configured path, else we look at the default location in the
-        # data dir. Reused by the downloader for YouTube URLs and shown by /YT登录.
-        self.youtube_cookies_file = config.youtube_cookies_file or str(
-            Path(data_dir) / "youtube_cookies.txt"
-        )
+        # YouTube cookies (experimental): captured in-chat via /YT登录 and saved
+        # by the bot, so VPS users never touch the filesystem. The downloader
+        # reads this jar for YouTube URLs.
+        self.youtube_cookies = YouTubeCookieStore(data_dir)
+        self.youtube_cookies_file = self.youtube_cookies.path
         self.downloader = YtDlpDownloader(
             data_dir=str(Path(data_dir) / "audio"),
             cookies=self.cookies.get(),

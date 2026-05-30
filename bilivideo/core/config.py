@@ -130,9 +130,6 @@ class PluginConfig:
     prefer_subtitle: bool = True
     download_quality: str = "fast"
     enable_multi_platform: bool = False
-    # Path to a Netscape cookies.txt for YouTube (experimental). Empty means
-    # "use the default location under the plugin data dir".
-    youtube_cookies_file: str = ""
     subtitle_langs: tuple[str, ...] = ("zh-Hans", "zh", "zh-CN", "ai-zh", "en", "en-US")
 
     # rendering ----------------------------------------------------------
@@ -210,7 +207,6 @@ class PluginConfig:
                 flat.get("download_quality"), "fast", options=tuple(QUALITY_TO_KBPS.keys())
             ),
             enable_multi_platform=_coerce_bool(flat.get("enable_multi_platform"), False),
-            youtube_cookies_file=_coerce_str(flat.get("youtube_cookies_file"), ""),
             subtitle_langs=_split_csv(flat.get("subtitle_langs"))
             or ("zh-Hans", "zh", "zh-CN", "ai-zh", "en", "en-US"),
             output_image=_coerce_bool(flat.get("output_image"), True),

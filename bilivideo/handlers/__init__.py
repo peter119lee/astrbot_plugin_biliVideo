@@ -24,7 +24,7 @@ from .subscription import (
 )
 from .summary import handle_latest_video, handle_summary
 from .toggle import handle_toggle_detect
-from .youtube import handle_youtube_login
+from .youtube import handle_youtube_login, handle_youtube_logout
 
 __all__ = [
     "handle_add_push_group",
@@ -46,4 +46,5 @@ __all__ = [
     "handle_toggle_detect",
     "handle_unsubscribe",
     "handle_youtube_login",
+    "handle_youtube_logout",
 ]

@@ -14,7 +14,8 @@ HELP_TEMPLATE = """\
 📌 登录命令:
   /B站登录 (bvlogin) → 扫码登录B站
   /B站登出 (bvlogout) → 退出B站登录
-  /YT登录 (ytlogin) → YouTube cookies 说明(实验)
+  /YT登录 (ytlogin) → YouTube 登录(贴 cookies,实验)
+  /YT登出 (ytlogout) → 清除 YouTube cookies
 
 📌 基本命令:
   /总结 (bv) <{platform_scope}视频链接或BV号>

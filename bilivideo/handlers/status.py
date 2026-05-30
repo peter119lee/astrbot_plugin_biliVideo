@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import shutil
 from collections.abc import AsyncIterator
-from pathlib import Path
 
 from ..api.endpoints import clear_video_info_cache, video_info_cache_size
 from ..api.wbi import clear_wbi_cache
@@ -51,7 +50,7 @@ async def handle_status(services: BiliVideoServices, event: object) -> AsyncIter
         llm_state = f"astrbot:{pinned}" if pinned else "astrbot 当前模型"
 
     if cfg.enable_multi_platform:
-        yt_cookies = "有" if Path(services.youtube_cookies_file).exists() else "无"
+        yt_cookies = "有" if services.youtube_cookies.has() else "无"
         multi_state = f"on (实验,仅 /总结;YT cookies:{yt_cookies})"
     else:
         multi_state = "off"
